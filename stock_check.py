@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 from datetime import datetime, timedelta
 import requests
-from bs4 import BeautifulSoup
 import json
 import re
 
@@ -36,13 +35,17 @@ def get_stock_info(ticker):
         st.warning(f"Warning: Using fallback data fetching method for {ticker}")
         return {}
 
-def get_historical_data(ticker):
-    """Fetch historical price data"""
+def get_historical_data(ticker, period='1y', interval='1d'):
+    """
+    Fetch historical price data with specified period and interval
+    
+    Parameters:
+    - period: valid periods: 1d,5d,1mo,3mo,6mo,1y,2y,5y,10y,ytd,max
+    - interval: valid intervals: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
+    """
     try:
         stock = yf.Ticker(ticker)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365*2)
-        hist_data = stock.history(start=start_date, end=end_date, interval='1d')
+        hist_data = stock.history(period=period, interval=interval)
         
         if hist_data.empty:
             raise ValueError("No historical data found")
@@ -106,16 +109,73 @@ def create_metric_chart(data, title, metric_type='price'):
 def main():
     st.title("Stock Analysis Dashboard")
     
-    # Sidebar for stock selection
+    # Sidebar for stock selection and settings
     st.sidebar.header("Stock Selection")
     ticker = st.sidebar.text_input("Enter Stock Ticker:", value="AAPL").upper()
+    
+    # Add period selection
+    period_options = {
+        '1 Day': '1d',
+        '5 Days': '5d',
+        '1 Month': '1mo',
+        '3 Months': '3mo',
+        '6 Months': '6mo',
+        '1 Year': '1y',
+        '2 Years': '2y',
+        '5 Years': '5y',
+        '10 Years': '10y',
+        'Year to Date': 'ytd',
+        'Max': 'max'
+    }
+    
+    selected_period = st.sidebar.selectbox(
+        "Select Time Period",
+        options=list(period_options.keys()),
+        index=5  # Default to 1 Year
+    )
+    
+    # Add interval selection based on period
+    interval_options = {
+        '1 Day': ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h'],
+        '5 Days': ['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h'],
+        '1 Month': ['5m', '15m', '30m', '60m', '90m', '1h', '1d'],
+        '3 Months': ['5m', '15m', '30m', '60m', '90m', '1h', '1d'],
+        '6 Months': ['15m', '30m', '60m', '90m', '1h', '1d'],
+        '1 Year': ['30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo'],
+        '2 Years': ['60m', '90m', '1h', '1d', '5d', '1wk', '1mo'],
+        '5 Years': ['1d', '5d', '1wk', '1mo'],
+        '10 Years': ['1d', '5d', '1wk', '1mo'],
+        'Year to Date': ['1d', '5d', '1wk', '1mo'],
+        'Max': ['1d', '5d', '1wk', '1mo']
+    }
+    
+    available_intervals = interval_options[selected_period]
+    interval_display = {
+        '1m': '1 Minute', '2m': '2 Minutes', '5m': '5 Minutes',
+        '15m': '15 Minutes', '30m': '30 Minutes', '60m': '1 Hour',
+        '90m': '90 Minutes', '1h': '1 Hour', '1d': '1 Day',
+        '5d': '5 Days', '1wk': '1 Week', '1mo': '1 Month'
+    }
+    
+    selected_interval = st.sidebar.selectbox(
+        "Select Interval",
+        options=[interval_display[i] for i in available_intervals],
+        index=len(available_intervals)-1  # Default to the last option
+    )
+    
+    # Convert display name back to interval code
+    interval_code = {v: k for k, v in interval_display.items()}[selected_interval]
     
     if st.sidebar.button("Search"):
         try:
             # Fetch data
             with st.spinner('Fetching stock data...'):
                 market_data = get_stock_info(ticker)
-                hist_data = get_historical_data(ticker)
+                hist_data = get_historical_data(
+                    ticker, 
+                    period=period_options[selected_period],
+                    interval=interval_code
+                )
             
             # Display basic company info
             st.header(f"{market_data.get('longName', ticker)} ({ticker})")
@@ -164,7 +224,11 @@ def main():
                 try:
                     with st.spinner('Fetching comparison data...'):
                         compare_market_data = get_stock_info(compare_ticker)
-                        compare_hist = get_historical_data(compare_ticker)
+                        compare_hist = get_historical_data(
+                            compare_ticker,
+                            period=period_options[selected_period],
+                            interval=interval_code
+                        )
                     
                     # Normalize prices for comparison
                     hist_data_norm = hist_data['Close'] / hist_data['Close'].iloc[0] * 100
