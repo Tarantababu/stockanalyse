@@ -8,68 +8,48 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import json
-import re  # Added missing import for regular expressions
+import re
 
-def get_yahoo_data(ticker):
-    """Fetch data directly from Yahoo Finance website"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    # Get summary data
-    url = f"https://finance.yahoo.com/quote/{ticker}"
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # Get statistics data
-    stats_url = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
-    stats_response = requests.get(stats_url, headers=headers)
-    stats_soup = BeautifulSoup(stats_response.text, 'html.parser')
-    
-    # Extract data from the page
-    market_data = {}
+def get_stock_info(ticker):
+    """Fetch stock information using yfinance"""
     try:
-        # Find the script containing the market data
-        pattern = re.compile(r'root\.App\.main = (.*);')
-        script_data = soup.find('script', text=pattern).string
-        if script_data:
-            json_data = pattern.search(script_data).group(1)
-            data = json.loads(json_data)
-            
-            # Extract relevant information from the JSON data
-            quote_summary = data['context']['dispatcher']['stores']['QuoteSummaryStore']
-            
-            # Basic Info
-            market_data['longName'] = quote_summary.get('price', {}).get('longName', '')
-            market_data['regularMarketPrice'] = quote_summary.get('price', {}).get('regularMarketPrice', {}).get('raw', 0)
-            market_data['marketCap'] = quote_summary.get('price', {}).get('marketCap', {}).get('raw', 0)
-            
-            # Valuation Measures
-            market_data['trailingPE'] = quote_summary.get('summaryDetail', {}).get('trailingPE', {}).get('raw', 0)
-            market_data['forwardPE'] = quote_summary.get('summaryDetail', {}).get('forwardPE', {}).get('raw', 0)
-            market_data['priceToSales'] = quote_summary.get('summaryDetail', {}).get('priceToSalesTrailing12Months', {}).get('raw', 0)
-            market_data['priceToBook'] = quote_summary.get('defaultKeyStatistics', {}).get('priceToBook', {}).get('raw', 0)
-            market_data['enterpriseToEbitda'] = quote_summary.get('defaultKeyStatistics', {}).get('enterpriseToEbitda', {}).get('raw', 0)
-            
-            # Financial Highlights
-            market_data['profitMargin'] = quote_summary.get('financialData', {}).get('profitMargins', {}).get('raw', 0)
-            market_data['operatingMargin'] = quote_summary.get('financialData', {}).get('operatingMargins', {}).get('raw', 0)
-            market_data['returnOnEquity'] = quote_summary.get('financialData', {}).get('returnOnEquity', {}).get('raw', 0)
-            market_data['returnOnAssets'] = quote_summary.get('financialData', {}).get('returnOnAssets', {}).get('raw', 0)
-            
-            # Balance Sheet
-            market_data['totalCash'] = quote_summary.get('financialData', {}).get('totalCash', {}).get('raw', 0)
-            market_data['totalDebt'] = quote_summary.get('financialData', {}).get('totalDebt', {}).get('raw', 0)
-            market_data['debtToEquity'] = quote_summary.get('financialData', {}).get('debtToEquity', {}).get('raw', 0)
-            
-            # Cash Flow
-            market_data['operatingCashflow'] = quote_summary.get('financialData', {}).get('operatingCashflow', {}).get('raw', 0)
-            market_data['freeCashflow'] = quote_summary.get('financialData', {}).get('freeCashflow', {}).get('raw', 0)
-            
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return {
+            'longName': info.get('longName', ticker),
+            'marketCap': info.get('marketCap', 0),
+            'trailingPE': info.get('trailingPE', 0),
+            'forwardPE': info.get('forwardPE', 0),
+            'priceToSales': info.get('priceToSalesTrailing12Months', 0),
+            'priceToBook': info.get('priceToBook', 0),
+            'enterpriseToEbitda': info.get('enterpriseToEbitda', 0),
+            'profitMargin': info.get('profitMargins', 0),
+            'operatingMargin': info.get('operatingMargins', 0),
+            'returnOnEquity': info.get('returnOnEquity', 0),
+            'returnOnAssets': info.get('returnOnAssets', 0),
+            'totalCash': info.get('totalCash', 0),
+            'totalDebt': info.get('totalDebt', 0),
+            'freeCashflow': info.get('freeCashflow', 0),
+            'operatingCashflow': info.get('operatingCashflow', 0)
+        }
     except Exception as e:
-        st.error(f"Error parsing Yahoo Finance data: {str(e)}")
+        st.warning(f"Warning: Using fallback data fetching method for {ticker}")
+        return {}
+
+def get_historical_data(ticker):
+    """Fetch historical price data"""
+    try:
+        stock = yf.Ticker(ticker)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365*2)
+        hist_data = stock.history(start=start_date, end=end_date, interval='1d')
         
-    return market_data
+        if hist_data.empty:
+            raise ValueError("No historical data found")
+            
+        return hist_data
+    except Exception as e:
+        raise Exception(f"Could not fetch historical data: {str(e)}")
 
 def format_number(number):
     """Format large numbers with B/M suffix"""
@@ -84,31 +64,15 @@ def format_number(number):
 
 def format_ratio(value):
     """Format ratio values with proper error handling"""
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float)) and value != 0:
         return f"{value:.2f}"
     return "N/A"
 
-def get_stock_data(ticker):
-    """Fetch both yfinance and Yahoo Finance website data"""
-    try:
-        # Get yfinance data
-        stock = yf.Ticker(ticker)
-        
-        # Get historical data for TTM metrics
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365*2)
-        hist_data = stock.history(start=start_date, end=end_date)
-        
-        # Get Yahoo Finance website data
-        market_data = get_yahoo_data(ticker)
-        
-        if hist_data.empty:
-            raise ValueError(f"No historical data found for {ticker}")
-            
-        return stock, market_data, hist_data
-    
-    except Exception as e:
-        raise Exception(f"Error fetching data for {ticker}: {str(e)}")
+def format_percentage(value):
+    """Format percentage values with proper error handling"""
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}%"
+    return "N/A"
 
 def create_metric_chart(data, title, metric_type='price'):
     """Create a plotly chart for various metrics"""
@@ -148,7 +112,10 @@ def main():
     
     if st.sidebar.button("Search"):
         try:
-            stock, market_data, hist_data = get_stock_data(ticker)
+            # Fetch data
+            with st.spinner('Fetching stock data...'):
+                market_data = get_stock_info(ticker)
+                hist_data = get_historical_data(ticker)
             
             # Display basic company info
             st.header(f"{market_data.get('longName', ticker)} ({ticker})")
@@ -170,15 +137,15 @@ def main():
                 st.subheader("Cash Flow")
                 if market_data.get('freeCashflow') and market_data.get('marketCap'):
                     fcf_yield = (market_data['freeCashflow'] / market_data['marketCap']) * 100
-                    st.write(f"Free Cash Flow Yield: {format_ratio(fcf_yield)}%")
+                    st.write(f"Free Cash Flow Yield: {format_percentage(fcf_yield)}")
                 st.write(f"Operating Cash Flow: {format_number(market_data.get('operatingCashflow', 0))}")
                 st.write(f"Free Cash Flow: {format_number(market_data.get('freeCashflow', 0))}")
             
             # Margins & Growth
             with col3:
                 st.subheader("Margins & Balance")
-                st.write(f"Profit Margin: {format_ratio(market_data.get('profitMargin', 0) * 100)}%")
-                st.write(f"Operating Margin: {format_ratio(market_data.get('operatingMargin', 0) * 100)}%")
+                st.write(f"Profit Margin: {format_percentage(market_data.get('profitMargin', 0) * 100)}")
+                st.write(f"Operating Margin: {format_percentage(market_data.get('operatingMargin', 0) * 100)}")
                 st.write(f"Total Cash: {format_number(market_data.get('totalCash', 0))}")
                 st.write(f"Total Debt: {format_number(market_data.get('totalDebt', 0))}")
                 if market_data.get('totalCash') is not None and market_data.get('totalDebt') is not None:
@@ -194,52 +161,57 @@ def main():
             compare_ticker = st.text_input("Enter ticker to compare:", "")
             
             if compare_ticker:
-                compare_stock, compare_market_data, compare_hist = get_stock_data(compare_ticker)
-                
-                # Normalize prices for comparison
-                hist_data_norm = hist_data['Close'] / hist_data['Close'].iloc[0] * 100
-                compare_hist_norm = compare_hist['Close'] / compare_hist['Close'].iloc[0] * 100
-                
-                # Create comparison chart
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=hist_data_norm.index, y=hist_data_norm,
-                                       name=ticker, mode='lines'))
-                fig.add_trace(go.Scatter(x=compare_hist_norm.index, y=compare_hist_norm,
-                                       name=compare_ticker, mode='lines'))
-                
-                fig.update_layout(
-                    title=f"Price Comparison (Normalized to 100)",
-                    xaxis_title="Date",
-                    yaxis_title="Normalized Price",
-                    template="plotly_white",
-                    height=400
-                )
-                
-                st.plotly_chart(fig)
-                
-                # Compare key metrics
-                comparison_df = pd.DataFrame({
-                    'Metric': ['Market Cap', 'P/E (TTM)', 'Price/Sales', 'EV/EBITDA'],
-                    ticker: [
-                        format_number(market_data.get('marketCap', 0)),
-                        format_ratio(market_data.get('trailingPE')),
-                        format_ratio(market_data.get('priceToSales')),
-                        format_ratio(market_data.get('enterpriseToEbitda'))
-                    ],
-                    compare_ticker: [
-                        format_number(compare_market_data.get('marketCap', 0)),
-                        format_ratio(compare_market_data.get('trailingPE')),
-                        format_ratio(compare_market_data.get('priceToSales')),
-                        format_ratio(compare_market_data.get('enterpriseToEbitda'))
-                    ]
-                })
-                
-                st.write("Metric Comparison")
-                st.dataframe(comparison_df)
+                try:
+                    with st.spinner('Fetching comparison data...'):
+                        compare_market_data = get_stock_info(compare_ticker)
+                        compare_hist = get_historical_data(compare_ticker)
+                    
+                    # Normalize prices for comparison
+                    hist_data_norm = hist_data['Close'] / hist_data['Close'].iloc[0] * 100
+                    compare_hist_norm = compare_hist['Close'] / compare_hist['Close'].iloc[0] * 100
+                    
+                    # Create comparison chart
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=hist_data_norm.index, y=hist_data_norm,
+                                           name=ticker, mode='lines'))
+                    fig.add_trace(go.Scatter(x=compare_hist_norm.index, y=compare_hist_norm,
+                                           name=compare_ticker, mode='lines'))
+                    
+                    fig.update_layout(
+                        title=f"Price Comparison (Normalized to 100)",
+                        xaxis_title="Date",
+                        yaxis_title="Normalized Price",
+                        template="plotly_white",
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig)
+                    
+                    # Compare key metrics
+                    comparison_df = pd.DataFrame({
+                        'Metric': ['Market Cap', 'P/E (TTM)', 'Price/Sales', 'EV/EBITDA'],
+                        ticker: [
+                            format_number(market_data.get('marketCap', 0)),
+                            format_ratio(market_data.get('trailingPE')),
+                            format_ratio(market_data.get('priceToSales')),
+                            format_ratio(market_data.get('enterpriseToEbitda'))
+                        ],
+                        compare_ticker: [
+                            format_number(compare_market_data.get('marketCap', 0)),
+                            format_ratio(compare_market_data.get('trailingPE')),
+                            format_ratio(compare_market_data.get('priceToSales')),
+                            format_ratio(compare_market_data.get('enterpriseToEbitda'))
+                        ]
+                    })
+                    
+                    st.write("Metric Comparison")
+                    st.dataframe(comparison_df)
+                    
+                except Exception as e:
+                    st.error(f"Error comparing with {compare_ticker}: {str(e)}")
                 
         except Exception as e:
-            st.error(f"Error fetching data for {ticker}. Please check the ticker symbol and try again.")
-            st.error(str(e))
+            st.error(f"Error analyzing {ticker}: {str(e)}")
 
 if __name__ == "__main__":
     main()
