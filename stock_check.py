@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import json
+import re  # Added missing import for regular expressions
 
 def get_yahoo_data(ticker):
     """Fetch data directly from Yahoo Finance website"""
@@ -31,58 +32,44 @@ def get_yahoo_data(ticker):
         # Find the script containing the market data
         pattern = re.compile(r'root\.App\.main = (.*);')
         script_data = soup.find('script', text=pattern).string
-        json_data = pattern.search(script_data).group(1)
-        data = json.loads(json_data)
-        
-        # Extract relevant information from the JSON data
-        quote_summary = data['context']['dispatcher']['stores']['QuoteSummaryStore']
-        
-        # Basic Info
-        market_data['longName'] = quote_summary.get('price', {}).get('longName', '')
-        market_data['regularMarketPrice'] = quote_summary.get('price', {}).get('regularMarketPrice', {}).get('raw', 0)
-        market_data['marketCap'] = quote_summary.get('price', {}).get('marketCap', {}).get('raw', 0)
-        
-        # Valuation Measures
-        market_data['trailingPE'] = quote_summary.get('summaryDetail', {}).get('trailingPE', {}).get('raw', 0)
-        market_data['forwardPE'] = quote_summary.get('summaryDetail', {}).get('forwardPE', {}).get('raw', 0)
-        market_data['priceToSales'] = quote_summary.get('summaryDetail', {}).get('priceToSalesTrailing12Months', {}).get('raw', 0)
-        market_data['priceToBook'] = quote_summary.get('defaultKeyStatistics', {}).get('priceToBook', {}).get('raw', 0)
-        market_data['enterpriseToEbitda'] = quote_summary.get('defaultKeyStatistics', {}).get('enterpriseToEbitda', {}).get('raw', 0)
-        
-        # Financial Highlights
-        market_data['profitMargin'] = quote_summary.get('financialData', {}).get('profitMargins', {}).get('raw', 0)
-        market_data['operatingMargin'] = quote_summary.get('financialData', {}).get('operatingMargins', {}).get('raw', 0)
-        market_data['returnOnEquity'] = quote_summary.get('financialData', {}).get('returnOnEquity', {}).get('raw', 0)
-        market_data['returnOnAssets'] = quote_summary.get('financialData', {}).get('returnOnAssets', {}).get('raw', 0)
-        
-        # Balance Sheet
-        market_data['totalCash'] = quote_summary.get('financialData', {}).get('totalCash', {}).get('raw', 0)
-        market_data['totalDebt'] = quote_summary.get('financialData', {}).get('totalDebt', {}).get('raw', 0)
-        market_data['debtToEquity'] = quote_summary.get('financialData', {}).get('debtToEquity', {}).get('raw', 0)
-        
-        # Cash Flow
-        market_data['operatingCashflow'] = quote_summary.get('financialData', {}).get('operatingCashflow', {}).get('raw', 0)
-        market_data['freeCashflow'] = quote_summary.get('financialData', {}).get('freeCashflow', {}).get('raw', 0)
-        
+        if script_data:
+            json_data = pattern.search(script_data).group(1)
+            data = json.loads(json_data)
+            
+            # Extract relevant information from the JSON data
+            quote_summary = data['context']['dispatcher']['stores']['QuoteSummaryStore']
+            
+            # Basic Info
+            market_data['longName'] = quote_summary.get('price', {}).get('longName', '')
+            market_data['regularMarketPrice'] = quote_summary.get('price', {}).get('regularMarketPrice', {}).get('raw', 0)
+            market_data['marketCap'] = quote_summary.get('price', {}).get('marketCap', {}).get('raw', 0)
+            
+            # Valuation Measures
+            market_data['trailingPE'] = quote_summary.get('summaryDetail', {}).get('trailingPE', {}).get('raw', 0)
+            market_data['forwardPE'] = quote_summary.get('summaryDetail', {}).get('forwardPE', {}).get('raw', 0)
+            market_data['priceToSales'] = quote_summary.get('summaryDetail', {}).get('priceToSalesTrailing12Months', {}).get('raw', 0)
+            market_data['priceToBook'] = quote_summary.get('defaultKeyStatistics', {}).get('priceToBook', {}).get('raw', 0)
+            market_data['enterpriseToEbitda'] = quote_summary.get('defaultKeyStatistics', {}).get('enterpriseToEbitda', {}).get('raw', 0)
+            
+            # Financial Highlights
+            market_data['profitMargin'] = quote_summary.get('financialData', {}).get('profitMargins', {}).get('raw', 0)
+            market_data['operatingMargin'] = quote_summary.get('financialData', {}).get('operatingMargins', {}).get('raw', 0)
+            market_data['returnOnEquity'] = quote_summary.get('financialData', {}).get('returnOnEquity', {}).get('raw', 0)
+            market_data['returnOnAssets'] = quote_summary.get('financialData', {}).get('returnOnAssets', {}).get('raw', 0)
+            
+            # Balance Sheet
+            market_data['totalCash'] = quote_summary.get('financialData', {}).get('totalCash', {}).get('raw', 0)
+            market_data['totalDebt'] = quote_summary.get('financialData', {}).get('totalDebt', {}).get('raw', 0)
+            market_data['debtToEquity'] = quote_summary.get('financialData', {}).get('debtToEquity', {}).get('raw', 0)
+            
+            # Cash Flow
+            market_data['operatingCashflow'] = quote_summary.get('financialData', {}).get('operatingCashflow', {}).get('raw', 0)
+            market_data['freeCashflow'] = quote_summary.get('financialData', {}).get('freeCashflow', {}).get('raw', 0)
+            
     except Exception as e:
         st.error(f"Error parsing Yahoo Finance data: {str(e)}")
         
     return market_data
-
-def get_stock_data(ticker):
-    """Fetch both yfinance and Yahoo Finance website data"""
-    # Get yfinance data
-    stock = yf.Ticker(ticker)
-    
-    # Get historical data for TTM metrics
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=365*2)
-    hist_data = stock.history(start=start_date, end=end_date)
-    
-    # Get Yahoo Finance website data
-    market_data = get_yahoo_data(ticker)
-    
-    return stock, market_data, hist_data
 
 def format_number(number):
     """Format large numbers with B/M suffix"""
@@ -94,6 +81,34 @@ def format_number(number):
         else:
             return f"${number:,.2f}"
     return "N/A"
+
+def format_ratio(value):
+    """Format ratio values with proper error handling"""
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}"
+    return "N/A"
+
+def get_stock_data(ticker):
+    """Fetch both yfinance and Yahoo Finance website data"""
+    try:
+        # Get yfinance data
+        stock = yf.Ticker(ticker)
+        
+        # Get historical data for TTM metrics
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365*2)
+        hist_data = stock.history(start=start_date, end=end_date)
+        
+        # Get Yahoo Finance website data
+        market_data = get_yahoo_data(ticker)
+        
+        if hist_data.empty:
+            raise ValueError(f"No historical data found for {ticker}")
+            
+        return stock, market_data, hist_data
+    
+    except Exception as e:
+        raise Exception(f"Error fetching data for {ticker}: {str(e)}")
 
 def create_metric_chart(data, title, metric_type='price'):
     """Create a plotly chart for various metrics"""
@@ -145,28 +160,28 @@ def main():
             with col1:
                 st.subheader("Valuation")
                 st.write(f"Market Cap: {format_number(market_data.get('marketCap', 0))}")
-                st.write(f"PE (TTM|FWD): {market_data.get('trailingPE', 'N/A'):.2f} | {market_data.get('forwardPE', 'N/A'):.2f}")
-                st.write(f"Price To Sales: {market_data.get('priceToSales', 'N/A'):.3f}")
-                st.write(f"EV To EBITDA: {market_data.get('enterpriseToEbitda', 'N/A'):.2f}")
-                st.write(f"Price to Book: {market_data.get('priceToBook', 'N/A'):.3f}")
+                st.write(f"PE (TTM|FWD): {format_ratio(market_data.get('trailingPE'))} | {format_ratio(market_data.get('forwardPE'))}")
+                st.write(f"Price To Sales: {format_ratio(market_data.get('priceToSales'))}")
+                st.write(f"EV To EBITDA: {format_ratio(market_data.get('enterpriseToEbitda'))}")
+                st.write(f"Price to Book: {format_ratio(market_data.get('priceToBook'))}")
             
             # Cash Flow metrics
             with col2:
                 st.subheader("Cash Flow")
                 if market_data.get('freeCashflow') and market_data.get('marketCap'):
-                    fcf_yield = market_data['freeCashflow'] / market_data['marketCap'] * 100
-                    st.write(f"Free Cash Flow Yield: {fcf_yield:.2f}%")
+                    fcf_yield = (market_data['freeCashflow'] / market_data['marketCap']) * 100
+                    st.write(f"Free Cash Flow Yield: {format_ratio(fcf_yield)}%")
                 st.write(f"Operating Cash Flow: {format_number(market_data.get('operatingCashflow', 0))}")
                 st.write(f"Free Cash Flow: {format_number(market_data.get('freeCashflow', 0))}")
             
             # Margins & Growth
             with col3:
                 st.subheader("Margins & Balance")
-                st.write(f"Profit Margin: {market_data.get('profitMargin', 0)*100:.2f}%")
-                st.write(f"Operating Margin: {market_data.get('operatingMargin', 0)*100:.2f}%")
+                st.write(f"Profit Margin: {format_ratio(market_data.get('profitMargin', 0) * 100)}%")
+                st.write(f"Operating Margin: {format_ratio(market_data.get('operatingMargin', 0) * 100)}%")
                 st.write(f"Total Cash: {format_number(market_data.get('totalCash', 0))}")
                 st.write(f"Total Debt: {format_number(market_data.get('totalDebt', 0))}")
-                if market_data.get('totalCash') and market_data.get('totalDebt'):
+                if market_data.get('totalCash') is not None and market_data.get('totalDebt') is not None:
                     net_debt = market_data['totalDebt'] - market_data['totalCash']
                     st.write(f"Net Debt: {format_number(net_debt)}")
             
@@ -207,15 +222,15 @@ def main():
                     'Metric': ['Market Cap', 'P/E (TTM)', 'Price/Sales', 'EV/EBITDA'],
                     ticker: [
                         format_number(market_data.get('marketCap', 0)),
-                        f"{market_data.get('trailingPE', 'N/A'):.2f}",
-                        f"{market_data.get('priceToSales', 'N/A'):.2f}",
-                        f"{market_data.get('enterpriseToEbitda', 'N/A'):.2f}"
+                        format_ratio(market_data.get('trailingPE')),
+                        format_ratio(market_data.get('priceToSales')),
+                        format_ratio(market_data.get('enterpriseToEbitda'))
                     ],
                     compare_ticker: [
                         format_number(compare_market_data.get('marketCap', 0)),
-                        f"{compare_market_data.get('trailingPE', 'N/A'):.2f}",
-                        f"{compare_market_data.get('priceToSales', 'N/A'):.2f}",
-                        f"{compare_market_data.get('enterpriseToEbitda', 'N/A'):.2f}"
+                        format_ratio(compare_market_data.get('trailingPE')),
+                        format_ratio(compare_market_data.get('priceToSales')),
+                        format_ratio(compare_market_data.get('enterpriseToEbitda'))
                     ]
                 })
                 
