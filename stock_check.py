@@ -29,8 +29,6 @@ def calculate_ratios(ticker):
         # ROCE and ROIC Calculations
         try:
             # Extract required values
-            # For Total Capital Employed:
-            # Capital Employed = Total Assets - Current Liabilities
             total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
             
             # Try different field names for current liabilities
@@ -86,7 +84,6 @@ def calculate_ratios(ticker):
             capital_employed = total_assets - current_liabilities
 
             # Calculate ROCE
-            # ROCE = (Operating Income / Capital Employed) × 100
             if capital_employed != 0 and operating_income is not None:
                 roce = (operating_income / capital_employed) * 100
                 ratios['ROCE (%)'] = roce
@@ -94,25 +91,13 @@ def calculate_ratios(ticker):
                 ratios['ROCE (%)'] = np.nan
 
             # Calculate ROIC
-            # ROIC = (Net Income / Capital Employed) × 100
             if capital_employed != 0 and net_income is not None:
                 roic = (net_income / capital_employed) * 100
                 ratios['ROIC (%)'] = roic
             else:
                 ratios['ROIC (%)'] = np.nan
 
-            # Debug information
-            st.write(f"\nDebug - Values used for {ticker}:")
-            st.write(f"Total Assets: {total_assets:,.2f}")
-            st.write(f"Current Liabilities: {current_liabilities:,.2f}")
-            st.write(f"Capital Employed: {capital_employed:,.2f}")
-            st.write(f"Operating Income: {operating_income:,.2f}")
-            st.write(f"Net Income: {net_income:,.2f}")
-            st.write(f"ROCE: {ratios['ROCE (%)']:,.2f}%")
-            st.write(f"ROIC: {ratios['ROIC (%)']:,.2f}%")
-
         except Exception as e:
-            st.write(f"Error calculating ROCE/ROIC: {str(e)}")
             ratios['ROCE (%)'] = np.nan
             ratios['ROIC (%)'] = np.nan
 
