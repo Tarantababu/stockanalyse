@@ -25,7 +25,53 @@ def get_color_thresholds():
         'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},  # reverse means lower is better
         'Interest Coverage': {'good': 5, 'neutral': 2}
     }
-
+    
+def calculate_eps_values(stock):
+    """Calculate current and forward EPS if not available directly"""
+    try:
+        # Get financial statements
+        income_stmt = stock.financials
+        balance_sheet = stock.balance_sheet
+        
+        # Get shares outstanding
+        shares_outstanding = stock.info.get('sharesOutstanding', None)
+        if not shares_outstanding:
+            if 'Share Issued' in balance_sheet.index:
+                shares_outstanding = balance_sheet.loc['Share Issued', balance_sheet.columns[0]]
+            else:
+                return None, None
+        
+        # Calculate Current (TTM) EPS
+        if 'Net Income' in income_stmt.index:
+            net_income_ttm = income_stmt.loc['Net Income', income_stmt.columns[0]]
+            current_eps = net_income_ttm / shares_outstanding
+        else:
+            current_eps = None
+            
+        # Estimate Forward EPS using growth rate
+        if current_eps is not None:
+            # Try to get growth rate from financials
+            if len(income_stmt.columns) >= 2:
+                try:
+                    previous_net_income = income_stmt.loc['Net Income', income_stmt.columns[1]]
+                    growth_rate = (net_income_ttm - previous_net_income) / abs(previous_net_income)
+                    # Cap growth rate between -50% and 100%
+                    growth_rate = max(min(growth_rate, 1.0), -0.5)
+                    forward_eps = current_eps * (1 + growth_rate)
+                except:
+                    # Use a conservative 5% growth if calculation fails
+                    forward_eps = current_eps * 1.05
+            else:
+                # Use a conservative 5% growth if historical data is not available
+                forward_eps = current_eps * 1.05
+        else:
+            forward_eps = None
+            
+        return current_eps, forward_eps
+    except Exception as e:
+        print(f"Error calculating EPS values: {str(e)}")
+        return None, None
+        
 def calculate_valuation_metrics(ticker, info, ratios):
     """Calculate valuation metrics for a stock using industry PE comparison method"""
     try:
@@ -34,17 +80,38 @@ def calculate_valuation_metrics(ticker, info, ratios):
         # Get basic metrics
         current_price = info.get('currentPrice', np.nan)
         
-        # Get EPS values
-        current_eps = info.get('trailingEps', np.nan)  # Current (TTM) EPS
-        forward_eps = info.get('forwardEps', np.nan)   # Forward EPS estimate
+        # Get EPS values, first try from info
+        current_eps = info.get('trailingEps', np.nan)
+        forward_eps = info.get('forwardEps', np.nan)
+        
+        # If EPS values are not available, calculate them
+        if pd.isna(current_eps) or pd.isna(forward_eps):
+            calc_current_eps, calc_forward_eps = calculate_eps_values(stock)
+            
+            if calc_current_eps is not None:
+                current_eps = calc_current_eps
+            if calc_forward_eps is not None:
+                forward_eps = calc_forward_eps
         
         # Get PE ratios
-        industry_pe = stock.info.get('industryPE', np.nan)      # Industry PE
-        industry_fwd_pe = stock.info.get('industryForwardPE', np.nan)  # Industry Forward PE
+        industry_pe = stock.info.get('industryPE', np.nan)
+        industry_fwd_pe = stock.info.get('industryForwardPE', np.nan)
+        
+        # If industry PE ratios are not available, use market averages
+        if pd.isna(industry_pe):
+            industry_pe = 20  # Market average PE ratio
+        if pd.isna(industry_fwd_pe):
+            industry_fwd_pe = 18  # Market average forward PE ratio
+        
+        # Print debug information
+        print(f"\nDebug info for {ticker}:")
+        print(f"Current EPS: {current_eps}")
+        print(f"Forward EPS: {forward_eps}")
+        print(f"Industry PE: {industry_pe}")
+        print(f"Industry FWD PE: {industry_fwd_pe}")
         
         # Validate we have all required data
         if (pd.isna(current_eps) or pd.isna(forward_eps) or 
-            pd.isna(industry_pe) or pd.isna(industry_fwd_pe) or 
             current_eps <= 0 or forward_eps <= 0):  # Check for negative earnings
             
             return {
@@ -54,7 +121,7 @@ def calculate_valuation_metrics(ticker, info, ratios):
                 'Industry FWD P/E': industry_fwd_pe,
                 'Fair Value': np.nan,
                 'Value Range': "N/A",
-                'Valuation Status': "Unable to Calculate - Missing Data",
+                'Valuation Status': "Unable to Calculate - Negative Earnings",
                 'Upside Potential (%)': np.nan,
                 'Downside Risk (%)': np.nan,
                 'Industry': info.get('industry', 'N/A'),
@@ -103,6 +170,7 @@ def calculate_valuation_metrics(ticker, info, ratios):
         }
             
     except Exception as e:
+        print(f"Error in valuation calculation: {str(e)}")
         return {
             'Current EPS': np.nan,
             'Forward EPS': np.nan,
