@@ -27,133 +27,95 @@ def get_color_thresholds():
     }
 
 def calculate_valuation_metrics(ticker, info, ratios):
-    """Calculate valuation metrics for a stock"""
+    """Calculate valuation metrics for a stock using industry PE comparison method"""
     try:
         stock = yf.Ticker(ticker)
         
-        # Get required metrics
+        # Get basic metrics
         current_price = info.get('currentPrice', np.nan)
-        trailing_eps = info.get('trailingEps', np.nan)
-        trailing_pe = info.get('trailingPE', np.nan)
-        forward_pe = info.get('forwardPE', np.nan)
-        peg_ratio = info.get('pegRatio', np.nan)
         
-        # Get growth metrics
-        earnings_growth = info.get('earningsGrowth', np.nan)
-        revenue_growth = info.get('revenueGrowth', np.nan)
+        # Get EPS values
+        current_eps = info.get('trailingEps', np.nan)  # Current (TTM) EPS
+        forward_eps = info.get('forwardEps', np.nan)   # Forward EPS estimate
         
-        # Get forward EPS from Yahoo Finance or estimate it
-        forward_eps = info.get('forwardEps', np.nan)
+        # Get PE ratios
+        industry_pe = stock.info.get('industryPE', np.nan)      # Industry PE
+        industry_fwd_pe = stock.info.get('industryForwardPE', np.nan)  # Industry Forward PE
         
-        # Handle negative earnings cases
-        if pd.isna(forward_eps) or forward_eps <= 0:
-            # Try to use revenue-based valuation if earnings are negative
-            revenue_per_share = info.get('revenuePerShare', np.nan)
-            price_to_sales = info.get('priceToSalesTrailing12Months', np.nan)
+        # Validate we have all required data
+        if (pd.isna(current_eps) or pd.isna(forward_eps) or 
+            pd.isna(industry_pe) or pd.isna(industry_fwd_pe) or 
+            current_eps <= 0 or forward_eps <= 0):  # Check for negative earnings
             
-            if not pd.isna(revenue_per_share) and not pd.isna(price_to_sales):
-                # Use price-to-sales based valuation for companies with negative earnings
-                industry_ps = stock.info.get('industryPriceToSales', price_to_sales)
-                base_fair_value = revenue_per_share * industry_ps
-            else:
-                return {
-                    'Forward P/E': forward_pe,
-                    'Industry P/E': np.nan,
-                    'Forward EPS': forward_eps,
-                    'Industry': info.get('industry', 'N/A'),
-                    'Sector': info.get('sector', 'N/A'),
-                    'Fair Value': np.nan,
-                    'Value Range': "N/A",
-                    'Valuation Status': "Negative Earnings",
-                    'Upside Potential (%)': np.nan,
-                    'Downside Risk (%)': np.nan
-                }
-        else:
-            # Regular PE-based valuation for positive earnings
-            industry_pe = stock.info.get('industryPE', forward_pe)
-            if pd.isna(industry_pe) or industry_pe <= 0:
-                industry_pe = 15  # Use a conservative default PE if industry PE is not available
-                
-            # Ensure PE ratios are reasonable
-            forward_pe = forward_pe if not pd.isna(forward_pe) and forward_pe > 0 else 15
-            industry_pe = min(industry_pe, 50)  # Cap industry PE at 50 to avoid extreme valuations
-            
-            # Calculate base fair value
-            pe_based_value = forward_eps * forward_pe
-            industry_based_value = forward_eps * industry_pe
-            
-            # Use weighted average of both methods
-            base_fair_value = (pe_based_value + industry_based_value) / 2
-
-        # Ensure base fair value is positive
-        if pd.isna(base_fair_value) or base_fair_value <= 0:
             return {
-                'Forward P/E': forward_pe,
-                'Industry P/E': np.nan,
+                'Current EPS': current_eps,
                 'Forward EPS': forward_eps,
-                'Industry': info.get('industry', 'N/A'),
-                'Sector': info.get('sector', 'N/A'),
+                'Industry P/E': industry_pe,
+                'Industry FWD P/E': industry_fwd_pe,
                 'Fair Value': np.nan,
                 'Value Range': "N/A",
-                'Valuation Status': "Unable to Calculate",
+                'Valuation Status': "Unable to Calculate - Missing Data",
                 'Upside Potential (%)': np.nan,
-                'Downside Risk (%)': np.nan
+                'Downside Risk (%)': np.nan,
+                'Industry': info.get('industry', 'N/A'),
+                'Sector': info.get('sector', 'N/A')
             }
-            
-        # Apply margin of safety
-        margin_of_safety = 0.2  # base margin of safety is 20%
         
-        # Adjust margin of safety based on company metrics
-        if 'Debt to Equity' in ratios and not pd.isna(ratios['Debt to Equity']):
-            if ratios['Debt to Equity'] > 2:
-                margin_of_safety = min(margin_of_safety + 0.1, 0.4)  # Cap at 40%
-            elif ratios['Debt to Equity'] < 1:
-                margin_of_safety = max(margin_of_safety - 0.05, 0.1)  # Floor at 10%
+        # Calculate fair values
+        # Upper bound: Industry P/E × Current EPS
+        upper_bound = industry_pe * current_eps
         
-        # Calculate final values
-        conservative_value = max(base_fair_value * (1 - margin_of_safety), 0)
-        optimistic_value = max(base_fair_value * (1 + margin_of_safety), conservative_value * 1.2)
+        # Lower bound: Industry FWD P/E × Forward EPS
+        lower_bound = industry_fwd_pe * forward_eps
         
-        # Ensure fair value is never below current price * 0.1 to avoid extreme undervaluations
-        conservative_value = max(conservative_value, current_price * 0.1)
+        # Calculate conservative values (15% below industry averages)
+        conservative_upper = industry_pe * 0.85 * current_eps
+        conservative_lower = industry_fwd_pe * 0.85 * forward_eps
+        
+        # Calculate average fair value
+        fair_value = (upper_bound + lower_bound) / 2
         
         # Determine valuation status
-        if current_price < conservative_value:
+        if current_price < conservative_lower:
             valuation_status = "Undervalued"
-        elif current_price > optimistic_value:
+        elif current_price > upper_bound:
             valuation_status = "Overvalued"
         else:
             valuation_status = "Fair Valued"
         
         # Calculate potential returns
-        upside_potential = ((optimistic_value - current_price) / current_price) * 100
-        downside_risk = ((current_price - conservative_value) / current_price) * 100
+        upside_potential = ((upper_bound - current_price) / current_price) * 100
+        downside_risk = ((current_price - conservative_lower) / current_price) * 100
         
         return {
-            'Forward P/E': forward_pe,
-            'Industry P/E': industry_pe if 'industry_pe' in locals() else np.nan,
+            'Current EPS': current_eps,
             'Forward EPS': forward_eps,
-            'Industry': info.get('industry', 'N/A'),
-            'Sector': info.get('sector', 'N/A'),
-            'Fair Value': base_fair_value,
-            'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
+            'Industry P/E': industry_pe,
+            'Industry FWD P/E': industry_fwd_pe,
+            'Fair Value': fair_value,
+            'Value Range': f"${lower_bound:.2f} - ${upper_bound:.2f}",
+            'Conservative Range': f"${conservative_lower:.2f} - ${conservative_upper:.2f}",
             'Valuation Status': valuation_status,
             'Upside Potential (%)': upside_potential,
-            'Downside Risk (%)': downside_risk
+            'Downside Risk (%)': downside_risk,
+            'Industry': info.get('industry', 'N/A'),
+            'Sector': info.get('sector', 'N/A')
         }
             
     except Exception as e:
         return {
-            'Forward P/E': np.nan,
-            'Industry P/E': np.nan,
+            'Current EPS': np.nan,
             'Forward EPS': np.nan,
-            'Industry': "N/A",
-            'Sector': "N/A",
+            'Industry P/E': np.nan,
+            'Industry FWD P/E': np.nan,
             'Fair Value': np.nan,
             'Value Range': "N/A",
+            'Conservative Range': "N/A",
             'Valuation Status': "Error in Calculation",
             'Upside Potential (%)': np.nan,
-            'Downside Risk (%)': np.nan
+            'Downside Risk (%)': np.nan,
+            'Industry': "N/A",
+            'Sector': "N/A"
         }
 def calculate_rating(ratios):
     """Calculate rating based on key metrics"""
@@ -488,26 +450,22 @@ def main():
                     'Market Price',
                     'Fair Value',
                     'Value Range',
+                    'Conservative Range',
                     'Valuation Status',
+                    'Current EPS',
                     'Forward EPS',
-                    'Forward P/E',
                     'Industry P/E',
+                    'Industry FWD P/E',
                     'Industry',
                     'Sector',
                     'Upside Potential (%)',
                     'Downside Risk (%)',
-                    'P/E Ratio',
-                    'EPS Growth Rate (%)',
-                    'Revenue Growth Rate (%)',
                     'Gross Margin (%)',
                     'Operating Margin (%)',
                     'ROCE (%)',
-                    'ROIC (%)',
                     'Cash Conversion (%)',
                     'Debt to Equity',
-                    'Interest Coverage',
-                    'Latest Quarter',
-                    'Latest Annual'
+                    'Interest Coverage'
                 ]
                 
                 existing_columns = [col for col in column_order if col in df.columns]
