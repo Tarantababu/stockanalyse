@@ -18,11 +18,94 @@ def get_color_thresholds():
         'ROCE (%)': {'good': 15, 'neutral': 10},
         'ROIC (%)': {'good': 10, 'neutral': 5},
         'Cash Conversion (%)': {'good': 90, 'neutral': 70},
-        'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},  # reverse means lower is better
+        'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},
         'Interest Coverage': {'good': 5, 'neutral': 2},
         'EPS Growth Rate (%)': {'good': 10, 'neutral': 5},
         'Revenue Growth Rate (%)': {'good': 10, 'neutral': 5},
+        'Upside Potential (%)': {'good': 20, 'neutral': 10},
+        'Downside Risk (%)': {'good': 10, 'neutral': 20, 'reverse': True}
     }
+
+def calculate_valuation_metrics(ticker, info, ratios):
+    """Calculate valuation metrics for a stock"""
+    try:
+        stock = yf.Ticker(ticker)
+        
+        # Get forward P/E and other metrics
+        forward_pe = info.get('forwardPE', np.nan)
+        trailing_pe = info.get('trailingPE', np.nan)
+        industry = info.get('industry', 'N/A')
+        
+        # Get earnings growth rate (using provided or analyst estimates)
+        try:
+            earnings_growth = info.get('earningsQuarterlyGrowth', np.nan)
+            if pd.isna(earnings_growth):
+                earnings_growth = ratios.get('EPS Growth Rate (%)', np.nan)
+        except:
+            earnings_growth = np.nan
+
+        # Calculate fair value range
+        current_price = info.get('currentPrice', np.nan)
+        if not pd.isna(forward_pe) and not pd.isna(current_price):
+            # Get industry average P/E
+            industry_pe = info.get('industryForwardPE', 
+                                 info.get('industryPE',  # fallback to industry PE
+                                 forward_pe))  # fallback to stock's own forward PE
+            
+            # Calculate fair value ranges
+            conservative_pe = min(forward_pe, industry_pe) * 0.8
+            optimistic_pe = max(forward_pe, industry_pe) * 1.2
+            
+            # Get forward EPS
+            forward_eps = current_price / forward_pe if forward_pe != 0 else np.nan
+            
+            # Calculate fair value ranges
+            conservative_value = forward_eps * conservative_pe
+            fair_value = forward_eps * forward_pe
+            optimistic_value = forward_eps * optimistic_pe
+            
+            # Determine if undervalued/overvalued
+            if current_price < conservative_value:
+                valuation_status = "Undervalued"
+            elif current_price > optimistic_value:
+                valuation_status = "Overvalued"
+            else:
+                valuation_status = "Fair Valued"
+            
+            # Calculate upside/downside potential
+            upside_potential = ((optimistic_value - current_price) / current_price) * 100
+            downside_risk = ((current_price - conservative_value) / current_price) * 100
+            
+            return {
+                'Forward P/E': forward_pe,
+                'Industry P/E': industry_pe,
+                'Fair Value': fair_value,
+                'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
+                'Valuation Status': valuation_status,
+                'Upside Potential (%)': upside_potential,
+                'Downside Risk (%)': downside_risk
+            }
+        else:
+            return {
+                'Forward P/E': np.nan,
+                'Industry P/E': np.nan,
+                'Fair Value': np.nan,
+                'Value Range': "N/A",
+                'Valuation Status': "Unable to Calculate",
+                'Upside Potential (%)': np.nan,
+                'Downside Risk (%)': np.nan
+            }
+    except Exception as e:
+        st.write(f"Error calculating valuation metrics: {str(e)}")
+        return {
+            'Forward P/E': np.nan,
+            'Industry P/E': np.nan,
+            'Fair Value': np.nan,
+            'Value Range': "N/A",
+            'Valuation Status': "Error in Calculation",
+            'Upside Potential (%)': np.nan,
+            'Downside Risk (%)': np.nan
+        }
 
 def calculate_rating(ratios):
     """Calculate rating based on key metrics"""
@@ -96,12 +179,22 @@ def style_dataframe(df):
                     return 'background-color: lightgray'
                 else:
                     return 'background-color: lightcoral'
+        
+        # Special coloring for Valuation Status
+        if metric == 'Valuation Status':
+            if value == 'Undervalued':
+                return 'background-color: lightgreen'
+            elif value == 'Overvalued':
+                return 'background-color: lightcoral'
+            elif value == 'Fair Valued':
+                return 'background-color: lightgray'
         return ''
 
     styled_df = df.style
     
+    # Apply coloring to all metrics that have thresholds
     for column in df.columns:
-        if column in thresholds:
+        if column in thresholds or column == 'Valuation Status':
             styled_df = styled_df.applymap(lambda x: color_cells(x, column), subset=[column])
     
     return styled_df
@@ -223,6 +316,10 @@ def calculate_ratios(ticker):
                 'Revenue Growth Rate (%)': np.nan
             })
 
+        # Add valuation metrics
+        valuation_metrics = calculate_valuation_metrics(ticker, info, ratios)
+        ratios.update(valuation_metrics)
+
         # Profitability Ratios
         try:
             if 'Gross Profit' in income_stmt.index and 'Total Revenue' in income_stmt.index:
@@ -242,7 +339,6 @@ def calculate_ratios(ticker):
 
         # Debt to Equity
         try:
-            # Try to calculate from balance sheet first
             if 'Long Term Debt' in balance_sheet.index and 'Short Term Debt' in balance_sheet.index:
                 long_term_debt = balance_sheet.loc['Long Term Debt', balance_sheet.columns[0]]
                 short_term_debt = balance_sheet.loc['Short Term Debt', balance_sheet.columns[0]]
@@ -250,7 +346,6 @@ def calculate_ratios(ticker):
                 total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
                 ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
             else:
-                # Fallback to info object
                 ratios['Debt to Equity'] = info.get('debtToEquity', np.nan)
                 if ratios['Debt to Equity'] is not None:
                     ratios['Debt to Equity'] = ratios['Debt to Equity'] / 100
@@ -324,6 +419,13 @@ def main():
                 column_order = [
                     'Rating',
                     'Market Price',
+                    'Fair Value',
+                    'Value Range',
+                    'Valuation Status',
+                    'Forward P/E',
+                    'Industry P/E',
+                    'Upside Potential (%)',
+                    'Downside Risk (%)',
                     'P/E Ratio',
                     'EPS Growth Rate (%)',
                     'Revenue Growth Rate (%)',
@@ -349,6 +451,18 @@ def main():
                 st.dataframe(styled_df)
                 
                 # Add descriptions
+                st.write("### Valuation Analysis")
+                st.write("""
+                **Valuation Metrics**:
+                - Fair Value: Calculated based on forward P/E and industry comparisons
+                - Value Range: Conservative to optimistic value range
+                - Valuation Status: Indicates if the stock is Undervalued, Fair Valued, or Overvalued
+                - Forward P/E: Expected price-to-earnings ratio based on projected earnings
+                - Industry P/E: Average P/E ratio for the industry
+                - Upside Potential: Potential percentage gain to optimistic value
+                - Downside Risk: Potential percentage loss to conservative value
+                """)
+
                 st.write("### Rating System")
                 st.write("""
                 **Rating Criteria**:
@@ -387,6 +501,7 @@ def main():
                 - Interest Coverage: Operating Income / Interest Expense
                 """)
             
+            # Display any errors
             if errors:
                 st.error("Errors encountered:")
                 for error in errors:
