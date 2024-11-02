@@ -35,23 +35,28 @@ def calculate_valuation_metrics(ticker, info, ratios):
         forward_pe = info.get('forwardPE', np.nan)
         trailing_pe = info.get('trailingPE', np.nan)
         industry = info.get('industry', 'N/A')
+        sector = info.get('sector', 'N/A')
         
-        # Get earnings growth rate (using provided or analyst estimates)
+        # Try to get sector PE ratio from a different endpoint
         try:
-            earnings_growth = info.get('earningsQuarterlyGrowth', np.nan)
-            if pd.isna(earnings_growth):
-                earnings_growth = ratios.get('EPS Growth Rate (%)', np.nan)
+            stock_info = stock.get_info()
+            industry_pe = stock_info.get('pegRatio', np.nan) * forward_pe  # Using PEG ratio to estimate industry PE
+            if pd.isna(industry_pe):
+                industry_pe = stock_info.get('industryPE', forward_pe)
         except:
-            earnings_growth = np.nan
-
+            industry_pe = forward_pe
+        
+        # Get time period info
+        try:
+            latest_quarter = stock.quarterly_financials.columns[0].strftime('%Y-%m-%d')
+            latest_annual = stock.financials.columns[0].strftime('%Y-%m-%d')
+        except:
+            latest_quarter = "N/A"
+            latest_annual = "N/A"
+        
         # Calculate fair value range
         current_price = info.get('currentPrice', np.nan)
         if not pd.isna(forward_pe) and not pd.isna(current_price):
-            # Get industry average P/E
-            industry_pe = info.get('industryForwardPE', 
-                                 info.get('industryPE',  # fallback to industry PE
-                                 forward_pe))  # fallback to stock's own forward PE
-            
             # Calculate fair value ranges
             conservative_pe = min(forward_pe, industry_pe) * 0.8
             optimistic_pe = max(forward_pe, industry_pe) * 1.2
@@ -79,32 +84,44 @@ def calculate_valuation_metrics(ticker, info, ratios):
             return {
                 'Forward P/E': forward_pe,
                 'Industry P/E': industry_pe,
+                'Industry': industry,
+                'Sector': sector,
                 'Fair Value': fair_value,
                 'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
                 'Valuation Status': valuation_status,
                 'Upside Potential (%)': upside_potential,
-                'Downside Risk (%)': downside_risk
+                'Downside Risk (%)': downside_risk,
+                'Latest Quarter': latest_quarter,
+                'Latest Annual': latest_annual
             }
         else:
             return {
                 'Forward P/E': np.nan,
                 'Industry P/E': np.nan,
+                'Industry': industry,
+                'Sector': sector,
                 'Fair Value': np.nan,
                 'Value Range': "N/A",
                 'Valuation Status': "Unable to Calculate",
                 'Upside Potential (%)': np.nan,
-                'Downside Risk (%)': np.nan
+                'Downside Risk (%)': np.nan,
+                'Latest Quarter': latest_quarter,
+                'Latest Annual': latest_annual
             }
     except Exception as e:
         st.write(f"Error calculating valuation metrics: {str(e)}")
         return {
             'Forward P/E': np.nan,
             'Industry P/E': np.nan,
+            'Industry': "N/A",
+            'Sector': "N/A",
             'Fair Value': np.nan,
             'Value Range': "N/A",
             'Valuation Status': "Error in Calculation",
             'Upside Potential (%)': np.nan,
-            'Downside Risk (%)': np.nan
+            'Downside Risk (%)': np.nan,
+            'Latest Quarter': "N/A",
+            'Latest Annual': "N/A"
         }
 
 def calculate_rating(ratios):
@@ -419,34 +436,38 @@ def main():
                     progress_bar.progress((i + 1) / len(tickers))
             
             if all_ratios:
-                # Convert to DataFrame
-                df = pd.DataFrame(all_ratios).T
-                
-                # Add ratings column
-                df['Rating'] = pd.Series(ratings)
-                
-                # Reorder columns
-                column_order = [
-                    'Rating',
-                    'Market Price',
-                    'Fair Value',
-                    'Value Range',
-                    'Valuation Status',
-                    'Forward P/E',
-                    'Industry P/E',
-                    'Upside Potential (%)',
-                    'Downside Risk (%)',
-                    'P/E Ratio',
-                    'EPS Growth Rate (%)',
-                    'Revenue Growth Rate (%)',
-                    'Gross Margin (%)',
-                    'Operating Margin (%)',
-                    'ROCE (%)',
-                    'ROIC (%)',
-                    'Cash Conversion (%)',
-                    'Debt to Equity',
-                    'Interest Coverage'
-                ]
+        # Convert to DataFrame
+        df = pd.DataFrame(all_ratios).T
+        
+        # Add ratings column
+        df['Rating'] = pd.Series(ratings)
+        
+        # Reorder columns
+        column_order = [
+            'Rating',
+            'Market Price',
+            'Fair Value',
+            'Value Range',
+            'Valuation Status',
+            'Forward P/E',
+            'Industry P/E',
+            'Industry',
+            'Sector',
+            'Upside Potential (%)',
+            'Downside Risk (%)',
+            'P/E Ratio',
+            'EPS Growth Rate (%)',
+            'Revenue Growth Rate (%)',
+            'Gross Margin (%)',
+            'Operating Margin (%)',
+            'ROCE (%)',
+            'ROIC (%)',
+            'Cash Conversion (%)',
+            'Debt to Equity',
+            'Interest Coverage',
+            'Latest Quarter',
+            'Latest Annual'
+        ]
                 
                 existing_columns = [col for col in column_order if col in df.columns]
                 df = df[existing_columns]
@@ -510,6 +531,19 @@ def main():
                 - Debt to Equity: Total Debt / Total Equity
                 - Interest Coverage: Operating Income / Interest Expense
                 """)
+
+                # Add time period information to descriptions
+                st.write("### Data Time Periods")
+                st.write("""
+                - Financial Ratios: Based on latest quarterly and annual reports
+                - Market Data: Real-time or delayed based on exchange
+                - Growth Rates: Year-over-year comparison
+                - Valuation Metrics: Forward-looking based on analyst estimates
+        
+        Note: Check 'Latest Quarter' and 'Latest Annual' columns for specific dates of financial data.
+        """)
+
+                
             
             # Display any errors
             if errors:
