@@ -436,38 +436,38 @@ def main():
                     progress_bar.progress((i + 1) / len(tickers))
             
             if all_ratios:
-        # Convert to DataFrame
-        df = pd.DataFrame(all_ratios).T
-        
-        # Add ratings column
-        df['Rating'] = pd.Series(ratings)
-        
-        # Reorder columns
-        column_order = [
-            'Rating',
-            'Market Price',
-            'Fair Value',
-            'Value Range',
-            'Valuation Status',
-            'Forward P/E',
-            'Industry P/E',
-            'Industry',
-            'Sector',
-            'Upside Potential (%)',
-            'Downside Risk (%)',
-            'P/E Ratio',
-            'EPS Growth Rate (%)',
-            'Revenue Growth Rate (%)',
-            'Gross Margin (%)',
-            'Operating Margin (%)',
-            'ROCE (%)',
-            'ROIC (%)',
-            'Cash Conversion (%)',
-            'Debt to Equity',
-            'Interest Coverage',
-            'Latest Quarter',
-            'Latest Annual'
-        ]
+                # Convert to DataFrame
+                df = pd.DataFrame(all_ratios).T
+                
+                # Add ratings column
+                df['Rating'] = pd.Series(ratings)
+                
+                # Reorder columns
+                column_order = [
+                    'Rating',
+                    'Market Price',
+                    'Fair Value',
+                    'Value Range',
+                    'Valuation Status',
+                    'Forward P/E',
+                    'Industry P/E',
+                    'Industry',
+                    'Sector',
+                    'Upside Potential (%)',
+                    'Downside Risk (%)',
+                    'P/E Ratio',
+                    'EPS Growth Rate (%)',
+                    'Revenue Growth Rate (%)',
+                    'Gross Margin (%)',
+                    'Operating Margin (%)',
+                    'ROCE (%)',
+                    'ROIC (%)',
+                    'Cash Conversion (%)',
+                    'Debt to Equity',
+                    'Interest Coverage',
+                    'Latest Quarter',
+                    'Latest Annual'
+                ]
                 
                 existing_columns = [col for col in column_order if col in df.columns]
                 df = df[existing_columns]
