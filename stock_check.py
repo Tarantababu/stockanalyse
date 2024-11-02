@@ -1,3 +1,16 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+
+def calculate_growth_rate(data_series):
+    """Calculate year-over-year growth rate"""
+    if len(data_series) >= 2:
+        current = data_series.iloc[0]
+        previous = data_series.iloc[1]
+        return ((current - previous) / abs(previous)) * 100 if previous != 0 else np.nan
+    return np.nan
+
 def calculate_ratios(ticker):
     """Calculate financial ratios for a given ticker"""
     try:
@@ -73,7 +86,7 @@ def calculate_ratios(ticker):
             st.write(f"Error calculating Debt to Equity ratio: {str(e)}")
             ratios['Debt to Equity'] = np.nan
 
-        # Rest of the metrics (keeping them from previous code)
+        # Calculate rest of the metrics
         try:
             # Growth Rates
             if 'Basic EPS' in income_stmt.index:
@@ -107,8 +120,21 @@ def calculate_ratios(ticker):
             
             if 'Net Income' in income_stmt.index:
                 net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
-                ratios['ROIC (%)'] = (net_income / capital_employed) * 100 if capital_employed != 0 else np.nan
+                invested_capital = total_assets - current_liabilities if 'total_assets' in locals() else np.nan
+                ratios['ROIC (%)'] = (net_income / invested_capital) * 100 if invested_capital != 0 else np.nan
             
+            # Cash Conversion
+            if 'Operating Cash Flow' in cash_flow.index and 'Net Income' in income_stmt.index:
+                operating_cash_flow = cash_flow.loc['Operating Cash Flow', cash_flow.columns[0]]
+                net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
+                ratios['Cash Conversion (%)'] = (operating_cash_flow / net_income) * 100 if net_income != 0 else np.nan
+            
+            # Interest Coverage
+            if 'Interest Expense' in income_stmt.index and 'Operating Income' in income_stmt.index:
+                interest_expense = abs(income_stmt.loc['Interest Expense', income_stmt.columns[0]])
+                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+                ratios['Interest Coverage'] = (operating_income / interest_expense) if interest_expense != 0 else np.nan
+                
         except Exception as e:
             st.write(f"Error calculating other ratios: {str(e)}")
             ratios.update({
@@ -117,10 +143,112 @@ def calculate_ratios(ticker):
                 'Gross Margin (%)': np.nan,
                 'Operating Margin (%)': np.nan,
                 'ROCE (%)': np.nan,
-                'ROIC (%)': np.nan
+                'ROIC (%)': np.nan,
+                'Cash Conversion (%)': np.nan,
+                'Interest Coverage': np.nan
             })
         
         return ratios, None
         
     except Exception as e:
         return None, f"Error processing {ticker}: {str(e)}"
+
+def main():
+    st.title("Stock Financial Ratio Analysis")
+    
+    # Add description at the top
+    st.write("""
+    Enter one or more stock tickers to analyze their financial ratios.
+    For multiple stocks, separate them with commas (e.g., AAPL, MSFT, GOOGL)
+    """)
+    
+    # Input for stock tickers
+    ticker_input = st.text_input(
+        "Enter stock ticker(s)",
+        placeholder="e.g., AAPL, MSFT, GOOGL"
+    )
+    
+    if st.button("Analyze"):
+        if ticker_input:
+            # Split and clean tickers
+            tickers = [t.strip().upper() for t in ticker_input.split(",")]
+            
+            # Create progress bar
+            progress_bar = st.progress(0)
+            
+            # Initialize results storage
+            all_ratios = {}
+            errors = []
+            
+            # Process each ticker
+            for i, ticker in enumerate(tickers):
+                with st.spinner(f"Processing {ticker}..."):
+                    ratios, error = calculate_ratios(ticker)
+                    
+                    if error:
+                        errors.append(error)
+                    else:
+                        all_ratios[ticker] = ratios
+                    
+                    # Update progress bar
+                    progress_bar.progress((i + 1) / len(tickers))
+            
+            # Display results
+            if all_ratios:
+                # Convert to DataFrame
+                df = pd.DataFrame(all_ratios).T
+                
+                # Reorder columns in a logical grouping
+                column_order = [
+                    'Market Price',
+                    'P/E Ratio',
+                    'EPS Growth Rate (%)',
+                    'Revenue Growth Rate (%)',
+                    'Gross Margin (%)',
+                    'Operating Margin (%)',
+                    'ROCE (%)',
+                    'ROIC (%)',
+                    'Cash Conversion (%)',
+                    'Debt to Equity',
+                    'Interest Coverage'
+                ]
+                
+                # Reorder columns (only include columns that exist)
+                df = df[[col for col in column_order if col in df.columns]]
+                
+                # Round all numbers to 2 decimal places
+                df = df.round(2)
+                
+                # Display the results
+                st.write("### Financial Ratios Analysis")
+                st.dataframe(df)
+                
+                # Add descriptions
+                st.write("### Metric Descriptions")
+                st.write("""
+                **Market Metrics**:
+                - Market Price: Current stock price
+                - P/E Ratio: Price to Earnings ratio
+                - EPS Growth Rate: Year-over-year growth in Earnings Per Share
+                - Revenue Growth Rate: Year-over-year growth in Total Revenue
+                
+                **Profitability**:
+                - Gross Margin (%): (Gross Profit / Revenue) × 100
+                - Operating Margin (%): (Operating Income / Revenue) × 100
+                - ROCE (%): (Operating Income / Capital Employed) × 100
+                - ROIC (%): (Net Income / Invested Capital) × 100
+                
+                **Cash & Stability**:
+                - Cash Conversion (%): (Operating Cash Flow / Net Income) × 100
+                - Debt to Equity: Total Debt / Total Equity
+                - Interest Coverage: Operating Income / Interest Expense
+                """)
+            
+            # Display any errors
+            if errors:
+                st.error("Errors encountered:")
+                for error in errors:
+                    st.write(error)
+
+if __name__ == "__main__":
+    main()
