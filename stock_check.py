@@ -182,6 +182,16 @@ def style_dataframe(df):
         if pd.isna(value):
             return 'background-color: gray'
         
+        # Special handling for Rating column
+        if metric == 'Rating':
+            if value in ['A', 'B']:
+                return 'background-color: lightgreen'
+            elif value in ['C']:
+                return 'background-color: lightgray'
+            elif value in ['D', 'F']:
+                return 'background-color: lightcoral'
+            return ''
+            
         # Special handling for Valuation Status column
         if metric == 'Valuation Status':
             if value == 'Undervalued':
@@ -221,7 +231,7 @@ def style_dataframe(df):
     
     # Apply styling column by column
     for column in df.columns:
-        if column in thresholds or column == 'Valuation Status':
+        if column in thresholds or column in ['Valuation Status', 'Rating']:
             styled_df = styled_df.applymap(lambda x: color_cells(x, column), subset=[column])
     
     return styled_df
