@@ -23,10 +23,6 @@ def calculate_ratios(ticker):
         cash_flow = stock.cashflow
         info = stock.info
         
-        # Debug prints to see available fields
-        st.write(f"Available Balance Sheet Fields for {ticker}:")
-        st.write(balance_sheet.index.tolist())
-        
         # Calculate ratios
         ratios = {}
         
@@ -108,20 +104,40 @@ def calculate_ratios(ticker):
                 revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
                 ratios['Operating Margin (%)'] = (operating_income / revenue) * 100 if revenue != 0 else np.nan
             
-            # ROCE and ROIC
+            # ROCE (Return on Capital Employed)
             if ('Total Assets' in balance_sheet.index and 
                 'Total Current Liabilities' in balance_sheet.index and 
                 'Operating Income' in income_stmt.index):
+                
                 total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
                 current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
                 operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+                
                 capital_employed = total_assets - current_liabilities
-                ratios['ROCE (%)'] = (operating_income / capital_employed) * 100 if capital_employed != 0 else np.nan
-            
-            if 'Net Income' in income_stmt.index:
+                
+                if capital_employed != 0:
+                    roce = (operating_income / capital_employed) * 100
+                    ratios['ROCE (%)'] = roce
+                else:
+                    ratios['ROCE (%)'] = np.nan
+
+            # ROIC (Return on Invested Capital)
+            if ('Net Income' in income_stmt.index and 
+                'Total Assets' in balance_sheet.index and
+                'Total Current Liabilities' in balance_sheet.index):
+                
                 net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
-                invested_capital = total_assets - current_liabilities if 'total_assets' in locals() else np.nan
-                ratios['ROIC (%)'] = (net_income / invested_capital) * 100 if invested_capital != 0 else np.nan
+                total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
+                current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
+                
+                # Calculate Invested Capital
+                invested_capital = total_assets - current_liabilities
+                
+                if invested_capital != 0:
+                    roic = (net_income / invested_capital) * 100
+                    ratios['ROIC (%)'] = roic
+                else:
+                    ratios['ROIC (%)'] = np.nan
             
             # Cash Conversion
             if 'Operating Cash Flow' in cash_flow.index and 'Net Income' in income_stmt.index:
