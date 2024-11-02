@@ -72,9 +72,15 @@ def calculate_ratios(ticker):
 def main():
     st.title("Stock Financial Ratio Analysis")
     
+    # Add description at the top
+    st.write("""
+    Enter one or more stock tickers to analyze their financial ratios.
+    For multiple stocks, separate them with commas (e.g., AAPL, MSFT, GOOGL)
+    """)
+    
     # Input for stock tickers
     ticker_input = st.text_input(
-        "Enter stock ticker(s) (comma-separated for multiple)",
+        "Enter stock ticker(s)",
         placeholder="e.g., AAPL, MSFT, GOOGL"
     )
     
@@ -92,16 +98,16 @@ def main():
             
             # Process each ticker
             for i, ticker in enumerate(tickers):
-                st.write(f"Processing {ticker}...")
-                ratios, error = calculate_ratios(ticker)
-                
-                if error:
-                    errors.append(error)
-                else:
-                    all_ratios[ticker] = ratios
-                
-                # Update progress bar
-                progress_bar.progress((i + 1) / len(tickers))
+                with st.spinner(f"Processing {ticker}..."):
+                    ratios, error = calculate_ratios(ticker)
+                    
+                    if error:
+                        errors.append(error)
+                    else:
+                        all_ratios[ticker] = ratios
+                    
+                    # Update progress bar
+                    progress_bar.progress((i + 1) / len(tickers))
             
             # Display results
             if all_ratios:
@@ -111,13 +117,9 @@ def main():
                 # Round all numbers to 2 decimal places
                 df = df.round(2)
                 
-                # Apply styling
+                # Display the results
                 st.write("### Financial Ratios Analysis")
-                st.dataframe(
-                    df.style
-                    .background_gradient(cmap='RdYlGn', axis=0)
-                    .format("{:.2f}")
-                )
+                st.dataframe(df)
                 
                 # Add descriptions
                 st.write("### Ratio Descriptions")
