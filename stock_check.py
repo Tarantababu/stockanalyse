@@ -13,17 +13,17 @@ def calculate_growth_rate(data_series):
 
 def get_color_thresholds():
     return {
+        # Profitability Metrics
         'Gross Margin (%)': {'good': 40, 'neutral': 20},
         'Operating Margin (%)': {'good': 15, 'neutral': 8},
         'ROCE (%)': {'good': 15, 'neutral': 10},
-        'ROIC (%)': {'good': 10, 'neutral': 5},
+        
+        # Cash Generation
         'Cash Conversion (%)': {'good': 90, 'neutral': 70},
-        'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},
+        
+        # Financial Stability
+        'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},  # reverse means lower is better
         'Interest Coverage': {'good': 5, 'neutral': 2},
-        'EPS Growth Rate (%)': {'good': 10, 'neutral': 5},
-        'Revenue Growth Rate (%)': {'good': 10, 'neutral': 5},
-        'Upside Potential (%)': {'good': 20, 'neutral': 10},
-        'Downside Risk (%)': {'good': 10, 'neutral': 20, 'reverse': True}
     }
 
 def calculate_valuation_metrics(ticker, info, ratios):
@@ -549,6 +549,31 @@ def main():
                 - Market Data: Real-time or delayed based on exchange
                 - Growth Rates: Year-over-year comparison
                 - Valuation Metrics: Forward-looking based on analyst estimates
+
+                st.write("### Key Metrics Color Coding")
+                st.write("""
+                **Profitability**:
+                - Gross Margin (%): Good > 40% (Green), Neutral > 20% (Gray), Poor < 20% (Red)
+                - Operating Margin (%): Good > 15% (Green), Neutral > 8% (Gray), Poor < 8% (Red)
+                - ROCE (%): Good > 15% (Green), Neutral > 10% (Gray), Poor < 10% (Red)
+                
+                **Cash Generation**:
+                - Cash Conversion (%): Good > 90% (Green), Neutral > 70% (Gray), Poor < 70% (Red)
+                
+                **Financial Stability**:
+                - Debt to Equity: Good < 1.0 (Green), Neutral < 2.0 (Gray), Poor > 2.0 (Red)
+                - Interest Coverage: Good > 5x (Green), Neutral > 2x (Gray), Poor < 2x (Red)
+                
+                **Rating Colors**:
+                - Green: A and B ratings (Strong performance)
+                - Gray: C rating (Average performance)
+                - Red: D and F ratings (Poor performance)
+                
+                **Valuation Status Colors**:
+                - Green: Undervalued
+                - Gray: Fair Valued
+                - Red: Overvalued
+                """)
         
         Note: Check 'Latest Quarter' and 'Latest Annual' columns for specific dates of financial data.
         """)
