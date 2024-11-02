@@ -1,296 +1,145 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
-from datetime import datetime, timedelta
-import time
+import numpy as np
 
-def get_stock_info(ticker):
-    """Fetch stock information using yfinance"""
+def calculate_ratios(ticker):
+    """Calculate financial ratios for a given ticker"""
     try:
-        # Create ticker object
+        # Fetch stock data
         stock = yf.Ticker(ticker)
         
-        # Fast info (more reliable than info)
-        fast_info = stock.fast_info
+        # Get financial statements
+        income_stmt = stock.financials
+        balance_sheet = stock.balance_sheet
+        cash_flow = stock.cashflow
         
-        # Get additional info
+        # Calculate ratios
+        ratios = {}
+        
+        # 1. Profitability Ratios
         try:
-            info = stock.info
-        except:
-            info = {}
-        
-        return {
-            'longName': info.get('longName', ticker),
-            'marketCap': fast_info.get('marketCap', info.get('marketCap', 0)),
-            'trailingPE': fast_info.get('trailingPE', info.get('trailingPE', 0)),
-            'forwardPE': info.get('forwardPE', 0),
-            'priceToSales': info.get('priceToSalesTrailing12Months', 0),
-            'priceToBook': info.get('priceToBook', 0),
-            'enterpriseToEbitda': info.get('enterpriseToEbitda', 0),
-            'profitMargin': info.get('profitMargins', 0),
-            'operatingMargin': info.get('operatingMargins', 0),
-            'totalCash': info.get('totalCash', 0),
-            'totalDebt': info.get('totalDebt', 0),
-            'freeCashflow': info.get('freeCashflow', 0),
-            'operatingCashflow': info.get('operatingCashflow', 0),
-            'currentPrice': fast_info.get('lastPrice', fast_info.get('regularMarketPrice', 0))
-        }
-    except Exception as e:
-        st.warning(f"Warning: Using limited data for {ticker}: {str(e)}")
-        return {}
-
-def get_historical_data(ticker, period='1y', interval='1d'):
-    """Fetch historical price data"""
-    try:
-        stock = yf.Ticker(ticker)
-        hist_data = stock.history(period=period, interval=interval)
-        
-        if hist_data.empty:
-            raise ValueError(f"No historical data found for {ticker}")
+            # Gross Margin
+            gross_profit = income_stmt.loc['Gross Profit', income_stmt.columns[0]]
+            revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
+            ratios['Gross Margin'] = (gross_profit / revenue) * 100 if revenue != 0 else np.nan
             
-        return hist_data
+            # Operating Margin
+            operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+            ratios['Operating Margin'] = (operating_income / revenue) * 100 if revenue != 0 else np.nan
+            
+            # ROCE (Return on Capital Employed)
+            total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
+            current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
+            capital_employed = total_assets - current_liabilities
+            ratios['ROCE'] = (operating_income / capital_employed) * 100 if capital_employed != 0 else np.nan
+        except:
+            ratios.update({
+                'Gross Margin': np.nan,
+                'Operating Margin': np.nan,
+                'ROCE': np.nan
+            })
+        
+        # 2. Cash Conversion Ratio
+        try:
+            operating_cash_flow = cash_flow.loc['Operating Cash Flow', cash_flow.columns[0]]
+            net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
+            ratios['Cash Conversion Ratio'] = (operating_cash_flow / net_income) * 100 if net_income != 0 else np.nan
+        except:
+            ratios['Cash Conversion Ratio'] = np.nan
+        
+        # 3. Financial Stability Ratios
+        try:
+            # Debt to Equity
+            total_debt = balance_sheet.loc['Total Debt', balance_sheet.columns[0]]
+            total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
+            ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
+            
+            # Interest Coverage Ratio
+            interest_expense = abs(income_stmt.loc['Interest Expense', income_stmt.columns[0]])
+            ratios['Interest Coverage Ratio'] = (operating_income / interest_expense) if interest_expense != 0 else np.nan
+        except:
+            ratios.update({
+                'Debt to Equity': np.nan,
+                'Interest Coverage Ratio': np.nan
+            })
+        
+        return ratios, None
+        
     except Exception as e:
-        raise Exception(f"Could not fetch historical data: {str(e)}")
-
-@st.cache_data(ttl=300)  # Cache data for 5 minutes
-def get_cached_stock_data(ticker, period, interval):
-    """Cache stock data to avoid repeated API calls"""
-    market_data = get_stock_info(ticker)
-    hist_data = get_historical_data(ticker, period, interval)
-    return market_data, hist_data
-
-def format_number(number):
-    """Format large numbers with B/M suffix"""
-    if isinstance(number, (int, float)):
-        if number >= 1e9:
-            return f"${number/1e9:.2f}B"
-        elif number >= 1e6:
-            return f"${number/1e6:.2f}M"
-        else:
-            return f"${number:,.2f}"
-    return "N/A"
-
-def format_ratio(value):
-    """Format ratio values with proper error handling"""
-    if isinstance(value, (int, float)) and value != 0:
-        return f"{value:.2f}"
-    return "N/A"
-
-def format_percentage(value):
-    """Format percentage values with proper error handling"""
-    if isinstance(value, (int, float)):
-        return f"{value:.2f}%"
-    return "N/A"
-
-def create_metric_chart(data, title, metric_type='price'):
-    """Create a plotly chart for various metrics"""
-    fig = go.Figure()
-    
-    if metric_type == 'price':
-        fig.add_trace(go.Scatter(
-            x=data.index,
-            y=data['Close'],
-            mode='lines',
-            name='Price',
-            line=dict(color='#ff7675')
-        ))
-    else:
-        fig.add_trace(go.Bar(
-            x=data.index,
-            y=data[metric_type],
-            name=metric_type,
-        ))
-    
-    fig.update_layout(
-        title=title,
-        xaxis_title="Date",
-        yaxis_title="Value",
-        template="plotly_white",
-        height=400
-    )
-    
-    return fig
+        return None, f"Error processing {ticker}: {str(e)}"
 
 def main():
-    st.title("Stock Analysis Dashboard")
+    st.title("Stock Financial Ratio Analysis")
     
-    # Sidebar for stock selection and settings
-    st.sidebar.header("Stock Selection")
-    ticker = st.sidebar.text_input("Enter Stock Ticker:", value="AAPL").upper()
-    
-    # Add period selection
-    period_options = {
-        '1 Day': '1d',
-        '5 Days': '5d',
-        '1 Month': '1mo',
-        '3 Months': '3mo',
-        '6 Months': '6mo',
-        '1 Year': '1y',
-        '2 Years': '2y',
-        '5 Years': '5y',
-        'Year to Date': 'ytd',
-        'Max': 'max'
-    }
-    
-    selected_period = st.sidebar.selectbox(
-        "Select Time Period",
-        options=list(period_options.keys()),
-        index=5  # Default to 1 Year
+    # Input for stock tickers
+    ticker_input = st.text_input(
+        "Enter stock ticker(s) (comma-separated for multiple)",
+        placeholder="e.g., AAPL, MSFT, GOOGL"
     )
-
-    # Add interval selection
-    interval_mapping = {
-        '1d': ['1m', '2m', '5m', '15m', '30m', '60m'],
-        '5d': ['5m', '15m', '30m', '60m'],
-        '1mo': ['30m', '60m', '1d'],
-        '3mo': ['1d', '1wk'],
-        '6mo': ['1d', '1wk'],
-        '1y': ['1d', '1wk', '1mo'],
-        '2y': ['1d', '1wk', '1mo'],
-        '5y': ['1d', '1wk', '1mo'],
-        'ytd': ['1d', '1wk', '1mo'],
-        'max': ['1d', '1wk', '1mo']
-    }
-
-    period_code = period_options[selected_period]
-    available_intervals = interval_mapping[period_code]
-
-    interval_display = {
-        '1m': '1 Minute',
-        '2m': '2 Minutes',
-        '5m': '5 Minutes',
-        '15m': '15 Minutes',
-        '30m': '30 Minutes',
-        '60m': '1 Hour',
-        '1d': '1 Day',
-        '1wk': '1 Week',
-        '1mo': '1 Month'
-    }
-
-    selected_interval = st.sidebar.selectbox(
-        "Select Interval",
-        options=[interval_display[i] for i in available_intervals],
-        index=len(available_intervals)-1
-    )
-
-    interval_code = {v: k for k, v in interval_display.items()}[selected_interval]
     
-    if st.sidebar.button("Search"):
-        try:
-            with st.spinner('Fetching stock data...'):
-                market_data, hist_data = get_cached_stock_data(
-                    ticker,
-                    period_code,
-                    interval_code
-                )
+    if st.button("Analyze"):
+        if ticker_input:
+            # Split and clean tickers
+            tickers = [t.strip().upper() for t in ticker_input.split(",")]
             
-            # Display basic company info
-            st.header(f"{market_data.get('longName', ticker)} ({ticker})")
+            # Create progress bar
+            progress_bar = st.progress(0)
             
-            # Current Price
-            st.subheader(f"Current Price: {format_number(market_data.get('currentPrice', 0))}")
+            # Initialize results storage
+            all_ratios = {}
+            errors = []
             
-            # Create columns for metrics
-            col1, col2, col3 = st.columns(3)
-            
-            # Valuation metrics
-            with col1:
-                st.subheader("Valuation")
-                st.write(f"Market Cap: {format_number(market_data.get('marketCap', 0))}")
-                st.write(f"PE (TTM|FWD): {format_ratio(market_data.get('trailingPE'))} | {format_ratio(market_data.get('forwardPE'))}")
-                st.write(f"Price To Sales: {format_ratio(market_data.get('priceToSales'))}")
-                st.write(f"EV To EBITDA: {format_ratio(market_data.get('enterpriseToEbitda'))}")
-                st.write(f"Price to Book: {format_ratio(market_data.get('priceToBook'))}")
-            
-            # Cash Flow metrics
-            with col2:
-                st.subheader("Cash Flow")
-                if market_data.get('freeCashflow') and market_data.get('marketCap'):
-                    fcf_yield = (market_data['freeCashflow'] / market_data['marketCap']) * 100
-                    st.write(f"Free Cash Flow Yield: {format_percentage(fcf_yield)}")
-                st.write(f"Operating Cash Flow: {format_number(market_data.get('operatingCashflow', 0))}")
-                st.write(f"Free Cash Flow: {format_number(market_data.get('freeCashflow', 0))}")
-            
-            # Margins & Balance
-            with col3:
-                st.subheader("Margins & Balance")
-                st.write(f"Profit Margin: {format_percentage(market_data.get('profitMargin', 0) * 100)}")
-                st.write(f"Operating Margin: {format_percentage(market_data.get('operatingMargin', 0) * 100)}")
-                st.write(f"Total Cash: {format_number(market_data.get('totalCash', 0))}")
-                st.write(f"Total Debt: {format_number(market_data.get('totalDebt', 0))}")
-                if market_data.get('totalCash') is not None and market_data.get('totalDebt') is not None:
-                    net_debt = market_data['totalDebt'] - market_data['totalCash']
-                    st.write(f"Net Debt: {format_number(net_debt)}")
-            
-            # Charts
-            st.subheader("Price History")
-            st.plotly_chart(create_metric_chart(hist_data, "Stock Price", 'price'))
-            
-            # Compare functionality
-            st.subheader("Compare Stocks")
-            compare_ticker = st.text_input("Enter ticker to compare:", "")
-            
-            if compare_ticker:
-                try:
-                    with st.spinner('Fetching comparison data...'):
-                        compare_market_data, compare_hist = get_cached_stock_data(
-                            compare_ticker,
-                            period_code,
-                            interval_code
-                        )
-                    
-                    if not compare_hist.empty and not hist_data.empty:
-                        # Normalize prices for comparison
-                        hist_data_norm = hist_data['Close'] / hist_data['Close'].iloc[0] * 100
-                        compare_hist_norm = compare_hist['Close'] / compare_hist['Close'].iloc[0] * 100
-                        
-                        # Create comparison chart
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=hist_data_norm.index, y=hist_data_norm,
-                                               name=ticker, mode='lines'))
-                        fig.add_trace(go.Scatter(x=compare_hist_norm.index, y=compare_hist_norm,
-                                               name=compare_ticker, mode='lines'))
-                        
-                        fig.update_layout(
-                            title=f"Price Comparison (Normalized to 100)",
-                            xaxis_title="Date",
-                            yaxis_title="Normalized Price",
-                            template="plotly_white",
-                            height=400
-                        )
-                        
-                        st.plotly_chart(fig)
-                        
-                        # Compare key metrics
-                        comparison_df = pd.DataFrame({
-                            'Metric': ['Market Cap', 'P/E (TTM)', 'Price/Sales', 'EV/EBITDA'],
-                            ticker: [
-                                format_number(market_data.get('marketCap', 0)),
-                                format_ratio(market_data.get('trailingPE')),
-                                format_ratio(market_data.get('priceToSales')),
-                                format_ratio(market_data.get('enterpriseToEbitda'))
-                            ],
-                            compare_ticker: [
-                                format_number(compare_market_data.get('marketCap', 0)),
-                                format_ratio(compare_market_data.get('trailingPE')),
-                                format_ratio(compare_market_data.get('priceToSales')),
-                                format_ratio(compare_market_data.get('enterpriseToEbitda'))
-                            ]
-                        })
-                        
-                        st.write("Metric Comparison")
-                        st.dataframe(comparison_df)
-                    else:
-                        st.error("Unable to create comparison: No data available for one or both stocks")
-                        
-                except Exception as e:
-                    st.error(f"Error comparing with {compare_ticker}: {str(e)}")
+            # Process each ticker
+            for i, ticker in enumerate(tickers):
+                st.write(f"Processing {ticker}...")
+                ratios, error = calculate_ratios(ticker)
                 
-        except Exception as e:
-            st.error(f"Error analyzing {ticker}: {str(e)}")
+                if error:
+                    errors.append(error)
+                else:
+                    all_ratios[ticker] = ratios
+                
+                # Update progress bar
+                progress_bar.progress((i + 1) / len(tickers))
+            
+            # Display results
+            if all_ratios:
+                # Convert to DataFrame
+                df = pd.DataFrame(all_ratios).T
+                
+                # Round all numbers to 2 decimal places
+                df = df.round(2)
+                
+                # Apply styling
+                st.write("### Financial Ratios Analysis")
+                st.dataframe(
+                    df.style
+                    .background_gradient(cmap='RdYlGn', axis=0)
+                    .format("{:.2f}")
+                )
+                
+                # Add descriptions
+                st.write("### Ratio Descriptions")
+                st.write("""
+                **Profitability**:
+                - Gross Margin (%): Indicates the percentage of revenue that exceeds the cost of goods sold
+                - Operating Margin (%): Shows how much profit a company makes on a dollar of sales before interest and taxes
+                - ROCE (%): Measures how efficiently a company uses its capital to generate profits
+                
+                **Cash Generation**:
+                - Cash Conversion Ratio (%): Shows how efficiently a company converts profit into cash flow
+                
+                **Financial Stability**:
+                - Debt to Equity: Measures a company's financial leverage
+                - Interest Coverage Ratio: Indicates how easily a company can pay interest on its debt
+                """)
+            
+            # Display any errors
+            if errors:
+                st.error("Errors encountered:")
+                for error in errors:
+                    st.write(error)
 
 if __name__ == "__main__":
     main()
