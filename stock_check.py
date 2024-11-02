@@ -31,93 +31,101 @@ def calculate_valuation_metrics(ticker, info, ratios):
     try:
         stock = yf.Ticker(ticker)
         
-        # Get forward P/E and other metrics
+        # Get required metrics
+        current_price = info.get('currentPrice', np.nan)
         forward_pe = info.get('forwardPE', np.nan)
         trailing_pe = info.get('trailingPE', np.nan)
         industry = info.get('industry', 'N/A')
         sector = info.get('sector', 'N/A')
         
-        # Try to get sector PE ratio from a different endpoint
+        # Get earnings data
         try:
-            stock_info = stock.get_info()
-            industry_pe = stock_info.get('pegRatio', np.nan) * forward_pe  # Using PEG ratio to estimate industry PE
-            if pd.isna(industry_pe):
-                industry_pe = stock_info.get('industryPE', forward_pe)
-        except:
-            industry_pe = forward_pe
-        
-        # Get time period info
-        try:
+            # Get forward EPS from analysts estimates
+            forward_eps = info.get('forwardEps', np.nan)
+            
+            # If forward EPS is not available, try to estimate it
+            if pd.isna(forward_eps):
+                trailing_eps = info.get('trailingEps', np.nan)
+                eps_growth = info.get('earningsGrowth', 0.05)  # default to 5% if not available
+                forward_eps = trailing_eps * (1 + eps_growth)
+            
+            # Get industry PE
+            try:
+                stock_info = stock.get_info()
+                industry_pe = stock_info.get('industryForwardPE', np.nan)
+                if pd.isna(industry_pe):
+                    industry_pe = stock_info.get('industryPE', forward_pe)
+            except:
+                industry_pe = forward_pe
+            
+            # Get time period info
             latest_quarter = stock.quarterly_financials.columns[0].strftime('%Y-%m-%d')
             latest_annual = stock.financials.columns[0].strftime('%Y-%m-%d')
-        except:
-            latest_quarter = "N/A"
-            latest_annual = "N/A"
-        
-        # Calculate fair value range
-        current_price = info.get('currentPrice', np.nan)
-        if not pd.isna(forward_pe) and not pd.isna(current_price):
-            # Calculate fair value ranges
-            conservative_pe = min(forward_pe, industry_pe) * 0.8
-            optimistic_pe = max(forward_pe, industry_pe) * 1.2
             
-            # Get forward EPS
-            forward_eps = current_price / forward_pe if forward_pe != 0 else np.nan
-            
-            # Calculate fair value ranges
-            conservative_value = forward_eps * conservative_pe
-            fair_value = forward_eps * forward_pe
-            optimistic_value = forward_eps * optimistic_pe
-            
-            # Determine if undervalued/overvalued
-            if current_price < conservative_value:
-                valuation_status = "Undervalued"
-            elif current_price > optimistic_value:
-                valuation_status = "Overvalued"
+            # Calculate fair values using forward EPS
+            if not pd.isna(forward_eps) and not pd.isna(industry_pe):
+                # Calculate fair value ranges using industry PE
+                conservative_pe = min(forward_pe, industry_pe) * 0.8
+                fair_pe = (forward_pe + industry_pe) / 2
+                optimistic_pe = max(forward_pe, industry_pe) * 1.2
+                
+                # Calculate fair values
+                conservative_value = forward_eps * conservative_pe
+                fair_value = forward_eps * fair_pe
+                optimistic_value = forward_eps * optimistic_pe
+                
+                # Determine valuation status
+                if current_price < conservative_value:
+                    valuation_status = "Undervalued"
+                elif current_price > optimistic_value:
+                    valuation_status = "Overvalued"
+                else:
+                    valuation_status = "Fair Valued"
+                
+                # Calculate upside/downside potential
+                upside_potential = ((optimistic_value - current_price) / current_price) * 100
+                downside_risk = ((current_price - conservative_value) / current_price) * 100
+                
+                st.write(f"Debug for {ticker}:")
+                st.write(f"Forward EPS: {forward_eps}")
+                st.write(f"Industry PE: {industry_pe}")
+                st.write(f"Forward PE: {forward_pe}")
+                st.write(f"Fair PE: {fair_pe}")
+                st.write(f"Current Price: {current_price}")
+                st.write(f"Fair Value: {fair_value}")
+                
+                return {
+                    'Forward P/E': forward_pe,
+                    'Industry P/E': industry_pe,
+                    'Forward EPS': forward_eps,
+                    'Industry': industry,
+                    'Sector': sector,
+                    'Fair Value': fair_value,
+                    'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
+                    'Valuation Status': valuation_status,
+                    'Upside Potential (%)': upside_potential,
+                    'Downside Risk (%)': downside_risk,
+                    'Latest Quarter': latest_quarter,
+                    'Latest Annual': latest_annual
+                }
             else:
-                valuation_status = "Fair Valued"
+                raise ValueError("Missing required data for valuation")
+                
+        except Exception as e:
+            st.write(f"Error in earnings calculation: {str(e)}")
+            raise e
             
-            # Calculate upside/downside potential
-            upside_potential = ((optimistic_value - current_price) / current_price) * 100
-            downside_risk = ((current_price - conservative_value) / current_price) * 100
-            
-            return {
-                'Forward P/E': forward_pe,
-                'Industry P/E': industry_pe,
-                'Industry': industry,
-                'Sector': sector,
-                'Fair Value': fair_value,
-                'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
-                'Valuation Status': valuation_status,
-                'Upside Potential (%)': upside_potential,
-                'Downside Risk (%)': downside_risk,
-                'Latest Quarter': latest_quarter,
-                'Latest Annual': latest_annual
-            }
-        else:
-            return {
-                'Forward P/E': np.nan,
-                'Industry P/E': np.nan,
-                'Industry': industry,
-                'Sector': sector,
-                'Fair Value': np.nan,
-                'Value Range': "N/A",
-                'Valuation Status': "Unable to Calculate",
-                'Upside Potential (%)': np.nan,
-                'Downside Risk (%)': np.nan,
-                'Latest Quarter': latest_quarter,
-                'Latest Annual': latest_annual
-            }
     except Exception as e:
         st.write(f"Error calculating valuation metrics: {str(e)}")
         return {
             'Forward P/E': np.nan,
             'Industry P/E': np.nan,
+            'Forward EPS': np.nan,
             'Industry': "N/A",
             'Sector': "N/A",
             'Fair Value': np.nan,
             'Value Range': "N/A",
-            'Valuation Status': "Error in Calculation",
+            'Valuation Status': "Unable to Calculate",
             'Upside Potential (%)': np.nan,
             'Downside Risk (%)': np.nan,
             'Latest Quarter': "N/A",
@@ -459,6 +467,7 @@ def main():
                     'Fair Value',
                     'Value Range',
                     'Valuation Status',
+                    'Forward EPS',
                     'Forward P/E',
                     'Industry P/E',
                     'Industry',
