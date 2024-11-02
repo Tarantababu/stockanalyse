@@ -23,7 +23,7 @@ def get_color_thresholds():
         
         # Financial Stability
         'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},  # reverse means lower is better
-        'Interest Coverage': {'good': 5, 'neutral': 2},
+        'Interest Coverage': {'good': 5, 'neutral': 2}
     }
 
 def calculate_valuation_metrics(ticker, info, ratios):
@@ -33,90 +33,73 @@ def calculate_valuation_metrics(ticker, info, ratios):
         
         # Get required metrics
         current_price = info.get('currentPrice', np.nan)
-        forward_pe = info.get('forwardPE', np.nan)
+        trailing_eps = info.get('trailingEps', np.nan)
         trailing_pe = info.get('trailingPE', np.nan)
+        forward_pe = info.get('forwardPE', np.nan)
+        earnings_growth = info.get('earningsGrowth', 0.05)  # default to 5% if not available
+        
+        # Get forward EPS from Yahoo Finance
+        forward_eps = info.get('forwardEps', np.nan)
+        
+        # If forward EPS not available, estimate it
+        if pd.isna(forward_eps) and not pd.isna(trailing_eps):
+            forward_eps = trailing_eps * (1 + earnings_growth)
+        
+        # Get industry data
         industry = info.get('industry', 'N/A')
         sector = info.get('sector', 'N/A')
         
-        # Get earnings data
-        try:
-            # Get forward EPS from analysts estimates
-            forward_eps = info.get('forwardEps', np.nan)
+        # Get industry PE from different source
+        industry_pe = stock.info.get('industryPE', forward_pe)
+        
+        if not pd.isna(forward_eps) and not pd.isna(industry_pe):
+            # Calculate PE-based fair value
+            avg_pe = (industry_pe + forward_pe) / 2
+            base_fair_value = forward_eps * avg_pe
             
-            # If forward EPS is not available, try to estimate it
-            if pd.isna(forward_eps):
-                trailing_eps = info.get('trailingEps', np.nan)
-                eps_growth = info.get('earningsGrowth', 0.05)  # default to 5% if not available
-                forward_eps = trailing_eps * (1 + eps_growth)
+            # Apply margin of safety
+            conservative_value = base_fair_value * 0.8
+            optimistic_value = base_fair_value * 1.2
             
-            # Get industry PE
-            try:
-                stock_info = stock.get_info()
-                industry_pe = stock_info.get('industryForwardPE', np.nan)
-                if pd.isna(industry_pe):
-                    industry_pe = stock_info.get('industryPE', forward_pe)
-            except:
-                industry_pe = forward_pe
-            
-            # Get time period info
-            latest_quarter = stock.quarterly_financials.columns[0].strftime('%Y-%m-%d')
-            latest_annual = stock.financials.columns[0].strftime('%Y-%m-%d')
-            
-            # Calculate fair values using forward EPS
-            if not pd.isna(forward_eps) and not pd.isna(industry_pe):
-                # Calculate fair value ranges using industry PE
-                conservative_pe = min(forward_pe, industry_pe) * 0.8
-                fair_pe = (forward_pe + industry_pe) / 2
-                optimistic_pe = max(forward_pe, industry_pe) * 1.2
-                
-                # Calculate fair values
-                conservative_value = forward_eps * conservative_pe
-                fair_value = forward_eps * fair_pe
-                optimistic_value = forward_eps * optimistic_pe
-                
-                # Determine valuation status
-                if current_price < conservative_value:
-                    valuation_status = "Undervalued"
-                elif current_price > optimistic_value:
-                    valuation_status = "Overvalued"
-                else:
-                    valuation_status = "Fair Valued"
-                
-                # Calculate upside/downside potential
-                upside_potential = ((optimistic_value - current_price) / current_price) * 100
-                downside_risk = ((current_price - conservative_value) / current_price) * 100
-                
-                st.write(f"Debug for {ticker}:")
-                st.write(f"Forward EPS: {forward_eps}")
-                st.write(f"Industry PE: {industry_pe}")
-                st.write(f"Forward PE: {forward_pe}")
-                st.write(f"Fair PE: {fair_pe}")
-                st.write(f"Current Price: {current_price}")
-                st.write(f"Fair Value: {fair_value}")
-                
-                return {
-                    'Forward P/E': forward_pe,
-                    'Industry P/E': industry_pe,
-                    'Forward EPS': forward_eps,
-                    'Industry': industry,
-                    'Sector': sector,
-                    'Fair Value': fair_value,
-                    'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
-                    'Valuation Status': valuation_status,
-                    'Upside Potential (%)': upside_potential,
-                    'Downside Risk (%)': downside_risk,
-                    'Latest Quarter': latest_quarter,
-                    'Latest Annual': latest_annual
-                }
+            # Determine valuation status
+            if current_price < conservative_value:
+                valuation_status = "Undervalued"
+            elif current_price > optimistic_value:
+                valuation_status = "Overvalued"
             else:
-                raise ValueError("Missing required data for valuation")
-                
-        except Exception as e:
-            st.write(f"Error in earnings calculation: {str(e)}")
-            raise e
+                valuation_status = "Fair Valued"
+            
+            # Calculate potential returns
+            upside_potential = ((optimistic_value - current_price) / current_price) * 100
+            downside_risk = ((current_price - conservative_value) / current_price) * 100
+            
+            return {
+                'Forward P/E': forward_pe,
+                'Industry P/E': industry_pe,
+                'Forward EPS': forward_eps,
+                'Industry': industry,
+                'Sector': sector,
+                'Fair Value': base_fair_value,
+                'Value Range': f"${conservative_value:.2f} - ${optimistic_value:.2f}",
+                'Valuation Status': valuation_status,
+                'Upside Potential (%)': upside_potential,
+                'Downside Risk (%)': downside_risk
+            }
+        else:
+            return {
+                'Forward P/E': forward_pe,
+                'Industry P/E': industry_pe,
+                'Forward EPS': forward_eps,
+                'Industry': industry,
+                'Sector': sector,
+                'Fair Value': np.nan,
+                'Value Range': "N/A",
+                'Valuation Status': "Unable to Calculate",
+                'Upside Potential (%)': np.nan,
+                'Downside Risk (%)': np.nan
+            }
             
     except Exception as e:
-        st.write(f"Error calculating valuation metrics: {str(e)}")
         return {
             'Forward P/E': np.nan,
             'Industry P/E': np.nan,
@@ -125,11 +108,9 @@ def calculate_valuation_metrics(ticker, info, ratios):
             'Sector': "N/A",
             'Fair Value': np.nan,
             'Value Range': "N/A",
-            'Valuation Status': "Unable to Calculate",
+            'Valuation Status': "Error in Calculation",
             'Upside Potential (%)': np.nan,
-            'Downside Risk (%)': np.nan,
-            'Latest Quarter': "N/A",
-            'Latest Annual': "N/A"
+            'Downside Risk (%)': np.nan
         }
 
 def calculate_rating(ratios):
@@ -187,9 +168,9 @@ def style_dataframe(df):
     
     def color_cells(value, metric):
         # Handle non-numeric and special cases
-        if pd.isna(value):
+        if pd.isna(value) or value == "N/A":
             return 'background-color: gray'
-        
+            
         # Special handling for Rating column
         if metric == 'Rating':
             if value in ['A', 'B']:
@@ -209,30 +190,29 @@ def style_dataframe(df):
             elif value == 'Fair Valued':
                 return 'background-color: lightgray'
             return ''
-            
-        # Skip columns that don't need coloring
-        if metric not in thresholds:
-            return ''
-            
-        # Handle numeric values
-        try:
-            value = float(value)
-            if 'reverse' in thresholds[metric] and thresholds[metric]['reverse']:
-                if value <= thresholds[metric]['good']:
-                    return 'background-color: lightgreen'
-                elif value <= thresholds[metric]['neutral']:
-                    return 'background-color: lightgray'
+        
+        # Handle numeric metrics
+        if metric in thresholds:
+            try:
+                value = float(value)
+                if 'reverse' in thresholds[metric] and thresholds[metric]['reverse']:
+                    if value <= thresholds[metric]['good']:
+                        return 'background-color: lightgreen'
+                    elif value <= thresholds[metric]['neutral']:
+                        return 'background-color: lightgray'
+                    else:
+                        return 'background-color: lightcoral'
                 else:
-                    return 'background-color: lightcoral'
-            else:
-                if value >= thresholds[metric]['good']:
-                    return 'background-color: lightgreen'
-                elif value >= thresholds[metric]['neutral']:
-                    return 'background-color: lightgray'
-                else:
-                    return 'background-color: lightcoral'
-        except:
-            return ''
+                    if value >= thresholds[metric]['good']:
+                        return 'background-color: lightgreen'
+                    elif value >= thresholds[metric]['neutral']:
+                        return 'background-color: lightgray'
+                    else:
+                        return 'background-color: lightcoral'
+            except:
+                return ''
+        
+        return ''
 
     # Initialize style
     styled_df = df.style
