@@ -72,6 +72,69 @@ def calculate_eps_values(stock):
         print(f"Error calculating EPS values: {str(e)}")
         return None, None
         
+def get_industry_metrics(stock, info):
+    """Get industry PE ratios from multiple sources"""
+    try:
+        # Try to get industry metrics from different endpoints
+        industry_pe = None
+        industry_fwd_pe = None
+        
+        # Method 1: Direct from stock.info
+        if 'industryPE' in info:
+            industry_pe = info['industryPE']
+        if 'industryForwardPE' in info:
+            industry_fwd_pe = info['industryForwardPE']
+            
+        # Method 2: From stock.analysis
+        if pd.isna(industry_pe) or pd.isna(industry_fwd_pe):
+            try:
+                analysis = stock.analysis
+                if 'Industry Forward P/E' in analysis.index:
+                    industry_fwd_pe = analysis.loc['Industry Forward P/E', analysis.columns[0]]
+                if 'Industry P/E' in analysis.index:
+                    industry_pe = analysis.loc['Industry P/E', analysis.columns[0]]
+            except:
+                pass
+        
+        # Method 3: From sector averages if still not found
+        if pd.isna(industry_pe):
+            sector_map = {
+                'Technology': 25,
+                'Healthcare': 22,
+                'Consumer Cyclical': 18,
+                'Financial Services': 15,
+                'Industrials': 20,
+                'Consumer Defensive': 18,
+                'Energy': 12,
+                'Basic Materials': 15,
+                'Real Estate': 16,
+                'Utilities': 14,
+                'Communication Services': 20
+            }
+            sector = info.get('sector', None)
+            if sector in sector_map:
+                industry_pe = sector_map[sector]
+        
+        # If forward PE is still not found, estimate it from PE
+        if pd.isna(industry_fwd_pe) and not pd.isna(industry_pe):
+            industry_fwd_pe = industry_pe * 0.9  # Usually forward P/E is slightly lower
+            
+        # If PE is still not found, estimate it from forward PE
+        if pd.isna(industry_pe) and not pd.isna(industry_fwd_pe):
+            industry_pe = industry_fwd_pe * 1.1
+            
+        # If both are still not found, use market averages
+        if pd.isna(industry_pe):
+            industry_pe = 20
+        if pd.isna(industry_fwd_pe):
+            industry_fwd_pe = 18
+            
+        return industry_pe, industry_fwd_pe
+        
+    except Exception as e:
+        print(f"Error getting industry metrics: {str(e)}")
+        return 20, 18  # Return market averages as fallback
+        
 def calculate_valuation_metrics(ticker, info, ratios):
     """Calculate valuation metrics for a stock using industry PE comparison method"""
     try:
@@ -93,15 +156,8 @@ def calculate_valuation_metrics(ticker, info, ratios):
             if calc_forward_eps is not None:
                 forward_eps = calc_forward_eps
         
-        # Get PE ratios
-        industry_pe = stock.info.get('industryPE', np.nan)
-        industry_fwd_pe = stock.info.get('industryForwardPE', np.nan)
-        
-        # If industry PE ratios are not available, use market averages
-        if pd.isna(industry_pe):
-            industry_pe = 20  # Market average PE ratio
-        if pd.isna(industry_fwd_pe):
-            industry_fwd_pe = 18  # Market average forward PE ratio
+        # Get industry PE ratios from improved function
+        industry_pe, industry_fwd_pe = get_industry_metrics(stock, info)
         
         # Print debug information
         print(f"\nDebug info for {ticker}:")
@@ -129,10 +185,7 @@ def calculate_valuation_metrics(ticker, info, ratios):
             }
         
         # Calculate fair values
-        # Upper bound: Industry P/E × Current EPS
         upper_bound = industry_pe * current_eps
-        
-        # Lower bound: Industry FWD P/E × Forward EPS
         lower_bound = industry_fwd_pe * forward_eps
         
         # Calculate conservative values (15% below industry averages)
@@ -185,6 +238,7 @@ def calculate_valuation_metrics(ticker, info, ratios):
             'Industry': "N/A",
             'Sector': "N/A"
         }
+        
 def calculate_rating(ratios):
     """Calculate rating based on key metrics"""
     weights = {
