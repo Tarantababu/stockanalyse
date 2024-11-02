@@ -14,26 +14,44 @@ def calculate_ratios(ticker):
         balance_sheet = stock.balance_sheet
         cash_flow = stock.cashflow
         
+        # Debug prints
+        st.write("Available Income Statement Fields:")
+        st.write(income_stmt.index.tolist())
+        
+        st.write("Available Balance Sheet Fields:")
+        st.write(balance_sheet.index.tolist())
+        
+        st.write("Available Cash Flow Fields:")
+        st.write(cash_flow.index.tolist())
+        
         # Calculate ratios
         ratios = {}
         
         # 1. Profitability Ratios
         try:
             # Gross Margin
-            gross_profit = income_stmt.loc['Gross Profit', income_stmt.columns[0]]
-            revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
-            ratios['Gross Margin'] = (gross_profit / revenue) * 100 if revenue != 0 else np.nan
+            if 'Gross Profit' in income_stmt.index and 'Total Revenue' in income_stmt.index:
+                gross_profit = income_stmt.loc['Gross Profit', income_stmt.columns[0]]
+                revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
+                ratios['Gross Margin'] = (gross_profit / revenue) * 100 if revenue != 0 else np.nan
             
             # Operating Margin
-            operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
-            ratios['Operating Margin'] = (operating_income / revenue) * 100 if revenue != 0 else np.nan
+            if 'Operating Income' in income_stmt.index and 'Total Revenue' in income_stmt.index:
+                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+                revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
+                ratios['Operating Margin'] = (operating_income / revenue) * 100 if revenue != 0 else np.nan
             
             # ROCE (Return on Capital Employed)
-            total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
-            current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
-            capital_employed = total_assets - current_liabilities
-            ratios['ROCE'] = (operating_income / capital_employed) * 100 if capital_employed != 0 else np.nan
-        except:
+            if ('Total Assets' in balance_sheet.index and 
+                'Total Current Liabilities' in balance_sheet.index and 
+                'Operating Income' in income_stmt.index):
+                total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
+                current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
+                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+                capital_employed = total_assets - current_liabilities
+                ratios['ROCE'] = (operating_income / capital_employed) * 100 if capital_employed != 0 else np.nan
+        except Exception as e:
+            st.write(f"Error calculating profitability ratios: {str(e)}")
             ratios.update({
                 'Gross Margin': np.nan,
                 'Operating Margin': np.nan,
@@ -42,23 +60,30 @@ def calculate_ratios(ticker):
         
         # 2. Cash Conversion Ratio
         try:
-            operating_cash_flow = cash_flow.loc['Operating Cash Flow', cash_flow.columns[0]]
-            net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
-            ratios['Cash Conversion Ratio'] = (operating_cash_flow / net_income) * 100 if net_income != 0 else np.nan
-        except:
+            if 'Operating Cash Flow' in cash_flow.index and 'Net Income' in income_stmt.index:
+                operating_cash_flow = cash_flow.loc['Operating Cash Flow', cash_flow.columns[0]]
+                net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
+                ratios['Cash Conversion Ratio'] = (operating_cash_flow / net_income) * 100 if net_income != 0 else np.nan
+        except Exception as e:
+            st.write(f"Error calculating cash conversion ratio: {str(e)}")
             ratios['Cash Conversion Ratio'] = np.nan
         
         # 3. Financial Stability Ratios
         try:
             # Debt to Equity
-            total_debt = balance_sheet.loc['Total Debt', balance_sheet.columns[0]]
-            total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
-            ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
+            if ('Total Debt' in balance_sheet.index and 
+                'Total Stockholder Equity' in balance_sheet.index):
+                total_debt = balance_sheet.loc['Total Debt', balance_sheet.columns[0]]
+                total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
+                ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
             
             # Interest Coverage Ratio
-            interest_expense = abs(income_stmt.loc['Interest Expense', income_stmt.columns[0]])
-            ratios['Interest Coverage Ratio'] = (operating_income / interest_expense) if interest_expense != 0 else np.nan
-        except:
+            if 'Interest Expense' in income_stmt.index and 'Operating Income' in income_stmt.index:
+                interest_expense = abs(income_stmt.loc['Interest Expense', income_stmt.columns[0]])
+                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
+                ratios['Interest Coverage Ratio'] = (operating_income / interest_expense) if interest_expense != 0 else np.nan
+        except Exception as e:
+            st.write(f"Error calculating stability ratios: {str(e)}")
             ratios.update({
                 'Debt to Equity': np.nan,
                 'Interest Coverage Ratio': np.nan
