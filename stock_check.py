@@ -161,10 +161,27 @@ def style_dataframe(df):
     thresholds = get_color_thresholds()
     
     def color_cells(value, metric):
+        # Handle non-numeric and special cases
         if pd.isna(value):
             return 'background-color: gray'
         
-        if metric in thresholds:
+        # Special handling for Valuation Status column
+        if metric == 'Valuation Status':
+            if value == 'Undervalued':
+                return 'background-color: lightgreen'
+            elif value == 'Overvalued':
+                return 'background-color: lightcoral'
+            elif value == 'Fair Valued':
+                return 'background-color: lightgray'
+            return ''
+            
+        # Skip columns that don't need coloring
+        if metric not in thresholds:
+            return ''
+            
+        # Handle numeric values
+        try:
+            value = float(value)
             if 'reverse' in thresholds[metric] and thresholds[metric]['reverse']:
                 if value <= thresholds[metric]['good']:
                     return 'background-color: lightgreen'
@@ -179,20 +196,13 @@ def style_dataframe(df):
                     return 'background-color: lightgray'
                 else:
                     return 'background-color: lightcoral'
-        
-        # Special coloring for Valuation Status
-        if metric == 'Valuation Status':
-            if value == 'Undervalued':
-                return 'background-color: lightgreen'
-            elif value == 'Overvalued':
-                return 'background-color: lightcoral'
-            elif value == 'Fair Valued':
-                return 'background-color: lightgray'
-        return ''
+        except:
+            return ''
 
+    # Initialize style
     styled_df = df.style
     
-    # Apply coloring to all metrics that have thresholds
+    # Apply styling column by column
     for column in df.columns:
         if column in thresholds or column == 'Valuation Status':
             styled_df = styled_df.applymap(lambda x: color_cells(x, column), subset=[column])
