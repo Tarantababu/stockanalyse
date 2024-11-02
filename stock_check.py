@@ -3,6 +3,14 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+def calculate_growth_rate(data_series):
+    """Calculate year-over-year growth rate"""
+    if len(data_series) >= 2:
+        current = data_series.iloc[0]
+        previous = data_series.iloc[1]
+        return ((current - previous) / abs(previous)) * 100 if previous != 0 else np.nan
+    return np.nan
+
 def calculate_ratios(ticker):
     """Calculate financial ratios for a given ticker"""
     try:
@@ -15,40 +23,93 @@ def calculate_ratios(ticker):
         cash_flow = stock.cashflow
         info = stock.info
 
-        # Debug prints
-        st.write(f"Available Income Statement Fields for {ticker}:")
-        st.write(income_stmt.index.tolist())
-        st.write(f"\nAvailable Balance Sheet Fields for {ticker}:")
-        st.write(balance_sheet.index.tolist())
-        
         # Calculate ratios
         ratios = {}
 
         # ROCE and ROIC Calculations
         try:
-            # Get required values
+            # Extract required values
+            # For Total Capital Employed:
+            # Capital Employed = Total Assets - Current Liabilities
             total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
-            current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
-            invested_capital = total_assets - current_liabilities
+            
+            # Try different field names for current liabilities
+            current_liabilities_fields = [
+                'Total Current Liabilities',
+                'Current Liabilities',
+                'Total Current Liab'
+            ]
+            
+            current_liabilities = None
+            for field in current_liabilities_fields:
+                if field in balance_sheet.index:
+                    current_liabilities = balance_sheet.loc[field, balance_sheet.columns[0]]
+                    break
+            
+            if current_liabilities is None:
+                raise ValueError("Could not find current liabilities")
 
-            # ROCE Calculation
-            operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
-            roce = (operating_income / invested_capital) * 100
-            ratios['ROCE (%)'] = roce
+            # Try different field names for operating income
+            operating_income_fields = [
+                'Operating Income',
+                'EBIT',
+                'Operating Income Or Loss',
+                'Income Before Tax'
+            ]
+            
+            operating_income = None
+            for field in operating_income_fields:
+                if field in income_stmt.index:
+                    operating_income = income_stmt.loc[field, income_stmt.columns[0]]
+                    break
+            
+            if operating_income is None:
+                raise ValueError("Could not find operating income")
 
-            # ROIC Calculation
-            net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
-            roic = (net_income / invested_capital) * 100
-            ratios['ROIC (%)'] = roic
+            # Try different field names for net income
+            net_income_fields = [
+                'Net Income',
+                'Net Income Common Stockholders',
+                'Net Income From Continuing Ops'
+            ]
+            
+            net_income = None
+            for field in net_income_fields:
+                if field in income_stmt.index:
+                    net_income = income_stmt.loc[field, income_stmt.columns[0]]
+                    break
+            
+            if net_income is None:
+                raise ValueError("Could not find net income")
 
-            st.write(f"\nDebug - ROCE calculation values for {ticker}:")
-            st.write(f"Operating Income: {operating_income}")
-            st.write(f"Invested Capital: {invested_capital}")
-            st.write(f"ROCE: {roce}")
+            # Calculate Capital Employed
+            capital_employed = total_assets - current_liabilities
 
-            st.write(f"\nDebug - ROIC calculation values for {ticker}:")
-            st.write(f"Net Income: {net_income}")
-            st.write(f"ROIC: {roic}")
+            # Calculate ROCE
+            # ROCE = (Operating Income / Capital Employed) × 100
+            if capital_employed != 0 and operating_income is not None:
+                roce = (operating_income / capital_employed) * 100
+                ratios['ROCE (%)'] = roce
+            else:
+                ratios['ROCE (%)'] = np.nan
+
+            # Calculate ROIC
+            # ROIC = (Net Income / Capital Employed) × 100
+            if capital_employed != 0 and net_income is not None:
+                roic = (net_income / capital_employed) * 100
+                ratios['ROIC (%)'] = roic
+            else:
+                ratios['ROIC (%)'] = np.nan
+
+            # Debug information
+            st.write(f"\nDebug - Values used for {ticker}:")
+            st.write(f"Total Assets: {total_assets:,.2f}")
+            st.write(f"Current Liabilities: {current_liabilities:,.2f}")
+            st.write(f"Capital Employed: {capital_employed:,.2f}")
+            st.write(f"Operating Income: {operating_income:,.2f}")
+            st.write(f"Net Income: {net_income:,.2f}")
+            st.write(f"ROCE: {ratios['ROCE (%)']:,.2f}%")
+            st.write(f"ROIC: {ratios['ROIC (%)']:,.2f}%")
 
         except Exception as e:
             st.write(f"Error calculating ROCE/ROIC: {str(e)}")
@@ -64,7 +125,7 @@ def calculate_ratios(ticker):
                 'Market Price': np.nan,
                 'P/E Ratio': np.nan
             })
-        
+
         # Growth Rates
         try:
             # EPS Growth Rate
@@ -99,8 +160,9 @@ def calculate_ratios(ticker):
                 'Operating Margin (%)': np.nan
             })
 
-        # Debt to Equity Calculation
+        # Debt to Equity
         try:
+            # Try to calculate from balance sheet first
             if 'Long Term Debt' in balance_sheet.index and 'Short Term Debt' in balance_sheet.index:
                 long_term_debt = balance_sheet.loc['Long Term Debt', balance_sheet.columns[0]]
                 short_term_debt = balance_sheet.loc['Short Term Debt', balance_sheet.columns[0]]
@@ -108,6 +170,7 @@ def calculate_ratios(ticker):
                 total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
                 ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
             else:
+                # Fallback to info object
                 ratios['Debt to Equity'] = info.get('debtToEquity', np.nan)
                 if ratios['Debt to Equity'] is not None:
                     ratios['Debt to Equity'] = ratios['Debt to Equity'] / 100
@@ -132,17 +195,9 @@ def calculate_ratios(ticker):
             })
 
         return ratios, None
-        
+    
     except Exception as e:
         return None, f"Error processing {ticker}: {str(e)}"
-
-def calculate_growth_rate(data_series):
-    """Calculate year-over-year growth rate"""
-    if len(data_series) >= 2:
-        current = data_series.iloc[0]
-        previous = data_series.iloc[1]
-        return ((current - previous) / abs(previous)) * 100 if previous != 0 else np.nan
-    return np.nan
 
 def main():
     st.title("Stock Financial Ratio Analysis")
