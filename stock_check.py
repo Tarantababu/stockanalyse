@@ -2,54 +2,84 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import time
+
+def safe_get_value(df, row_name, position=0):
+    """Safely get value from financial statements"""
+    try:
+        if row_name in df.index:
+            return df.iloc[position][row_name]
+        return 0
+    except:
+        return 0
 
 def fetch_financial_metrics(ticker):
     """Fetch and calculate financial metrics for a given ticker"""
     try:
+        # Add delay between requests to avoid rate limiting
+        time.sleep(1)
+        
         stock = yf.Ticker(ticker)
         
-        # Get financial statements
-        income_stmt = stock.financials
-        balance_sheet = stock.balance_sheet
-        cashflow = stock.cashflow
+        # Get financial statements with retries
+        max_retries = 3
+        for _ in range(max_retries):
+            try:
+                income_stmt = stock.income_stmt
+                balance_sheet = stock.balance_sheet
+                cashflow = stock.cash_flow
+                info = stock.info
+                break
+            except Exception as e:
+                st.warning(f"Retrying data fetch for {ticker}...")
+                time.sleep(2)
+        else:
+            st.error(f"Failed to fetch data for {ticker} after {max_retries} attempts")
+            return None
         
         # Current market data
-        info = stock.info
         market_price = info.get('currentPrice', np.nan)
         market_cap = info.get('marketCap', np.nan)
         
-        # Calculate metrics
+        # Calculate metrics using safe getter
+        latest_revenue = safe_get_value(income_stmt, 'Total Revenue')
+        prev_revenue = safe_get_value(income_stmt, 'Total Revenue', 1)
+        
         # Revenue Growth
-        latest_revenue = income_stmt.loc['Total Revenue'][0]
-        prev_revenue = income_stmt.loc['Total Revenue'][1]
-        revenue_growth = ((latest_revenue - prev_revenue) / prev_revenue) * 100
+        revenue_growth = ((latest_revenue - prev_revenue) / prev_revenue * 100) if prev_revenue != 0 else 0
         
         # ROCE
-        operating_profit = income_stmt.loc.get('Operating Income', income_stmt.loc.get('EBIT', 0))[0]
-        total_assets = balance_sheet.loc['Total Assets'][0]
-        current_liabilities = balance_sheet.loc['Total Current Liabilities'][0]
+        operating_profit = safe_get_value(income_stmt, 'Operating Income')
+        if operating_profit == 0:
+            operating_profit = safe_get_value(income_stmt, 'EBIT')
+            
+        total_assets = safe_get_value(balance_sheet, 'Total Assets')
+        current_liabilities = safe_get_value(balance_sheet, 'Total Current Liabilities')
         capital_employed = total_assets - current_liabilities
-        roce = (operating_profit / capital_employed) * 100 if capital_employed != 0 else 0
+        roce = (operating_profit / capital_employed * 100) if capital_employed != 0 else 0
         
         # Gross Margin
-        gross_profit = income_stmt.loc['Gross Profit'][0]
-        gross_margin = (gross_profit / latest_revenue) * 100 if latest_revenue != 0 else 0
+        gross_profit = safe_get_value(income_stmt, 'Gross Profit')
+        gross_margin = (gross_profit / latest_revenue * 100) if latest_revenue != 0 else 0
         
         # Operating Profit Margin
-        operating_margin = (operating_profit / latest_revenue) * 100 if latest_revenue != 0 else 0
+        operating_margin = (operating_profit / latest_revenue * 100) if latest_revenue != 0 else 0
         
         # Cash Conversion
-        operating_cash_flow = cashflow.loc['Operating Cash Flow'][0]
-        cash_conversion = (latest_revenue / operating_cash_flow) * 100 if operating_cash_flow != 0 else 0
+        operating_cash_flow = safe_get_value(cashflow, 'Operating Cash Flow')
+        cash_conversion = (latest_revenue / operating_cash_flow * 100) if operating_cash_flow != 0 else 0
         
         # Leverage
-        total_debt = balance_sheet.loc.get('Total Debt', 0)[0]
-        total_equity = balance_sheet.loc['Total Stockholder Equity'][0]
-        leverage = (total_debt / total_equity) * 100 if total_equity != 0 else 0
+        total_debt = safe_get_value(balance_sheet, 'Total Debt')
+        if total_debt == 0:
+            total_debt = safe_get_value(balance_sheet, 'Long Term Debt') + safe_get_value(balance_sheet, 'Short Term Debt')
+            
+        total_equity = safe_get_value(balance_sheet, 'Total Stockholder Equity')
+        leverage = (total_debt / total_equity * 100) if total_equity != 0 else 0
         
         # Interest Coverage
-        interest_expense = abs(income_stmt.loc.get('Interest Expense', 0)[0])
-        interest_coverage = operating_profit / interest_expense if interest_expense != 0 else 0
+        interest_expense = abs(safe_get_value(income_stmt, 'Interest Expense'))
+        interest_coverage = (operating_profit / interest_expense) if interest_expense != 0 else 0
         
         return {
             'Ticker': ticker,
@@ -122,6 +152,7 @@ def main():
         # Process each ticker
         results = []
         for i, ticker in enumerate(tickers):
+            st.write(f"Processing {ticker}...")
             result = fetch_financial_metrics(ticker)
             if result:
                 results.append(result)
