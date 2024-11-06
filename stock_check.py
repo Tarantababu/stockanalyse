@@ -3,674 +3,141 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-def calculate_growth_rate(data_series):
-    """Calculate year-over-year growth rate"""
-    if len(data_series) >= 2:
-        current = data_series.iloc[0]
-        previous = data_series.iloc[1]
-        return ((current - previous) / abs(previous)) * 100 if previous != 0 else np.nan
-    return np.nan
-
-def get_color_thresholds():
-    return {
-        # Profitability Metrics
-        'Gross Margin (%)': {'good': 40, 'neutral': 20},
-        'Operating Margin (%)': {'good': 15, 'neutral': 8},
-        'ROCE (%)': {'good': 15, 'neutral': 10},
-        
-        # Cash Generation
-        'Cash Conversion (%)': {'good': 90, 'neutral': 70},
-        
-        # Financial Stability
-        'Debt to Equity': {'good': 1.0, 'neutral': 2.0, 'reverse': True},  # reverse means lower is better
-        'Interest Coverage': {'good': 5, 'neutral': 2}
-    }
-    
-def calculate_eps_values(stock):
-    """Calculate current and forward EPS if not available directly"""
+def fetch_financial_metrics(ticker):
+    """Fetch and calculate financial metrics for a given ticker"""
     try:
-        # Get financial statements
-        income_stmt = stock.financials
-        balance_sheet = stock.balance_sheet
-        
-        # Get shares outstanding
-        shares_outstanding = stock.info.get('sharesOutstanding', None)
-        if not shares_outstanding:
-            if 'Share Issued' in balance_sheet.index:
-                shares_outstanding = balance_sheet.loc['Share Issued', balance_sheet.columns[0]]
-            else:
-                return None, None
-        
-        # Calculate Current (TTM) EPS
-        if 'Net Income' in income_stmt.index:
-            net_income_ttm = income_stmt.loc['Net Income', income_stmt.columns[0]]
-            current_eps = net_income_ttm / shares_outstanding
-        else:
-            current_eps = None
-            
-        # Estimate Forward EPS using growth rate
-        if current_eps is not None:
-            # Try to get growth rate from financials
-            if len(income_stmt.columns) >= 2:
-                try:
-                    previous_net_income = income_stmt.loc['Net Income', income_stmt.columns[1]]
-                    growth_rate = (net_income_ttm - previous_net_income) / abs(previous_net_income)
-                    # Cap growth rate between -50% and 100%
-                    growth_rate = max(min(growth_rate, 1.0), -0.5)
-                    forward_eps = current_eps * (1 + growth_rate)
-                except:
-                    # Use a conservative 5% growth if calculation fails
-                    forward_eps = current_eps * 1.05
-            else:
-                # Use a conservative 5% growth if historical data is not available
-                forward_eps = current_eps * 1.05
-        else:
-            forward_eps = None
-            
-        return current_eps, forward_eps
-    except Exception as e:
-        print(f"Error calculating EPS values: {str(e)}")
-        return None, None
-        
-def get_industry_metrics(stock, info):
-    """Get industry PE ratios from multiple sources"""
-    try:
-        # Try to get industry metrics from different endpoints
-        industry_pe = None
-        industry_fwd_pe = None
-        
-        # Method 1: Direct from stock.info
-        if 'industryPE' in info:
-            industry_pe = info['industryPE']
-        if 'industryForwardPE' in info:
-            industry_fwd_pe = info['industryForwardPE']
-            
-        # Method 2: From stock.analysis
-        if pd.isna(industry_pe) or pd.isna(industry_fwd_pe):
-            try:
-                analysis = stock.analysis
-                if 'Industry Forward P/E' in analysis.index:
-                    industry_fwd_pe = analysis.loc['Industry Forward P/E', analysis.columns[0]]
-                if 'Industry P/E' in analysis.index:
-                    industry_pe = analysis.loc['Industry P/E', analysis.columns[0]]
-            except:
-                pass
-        
-        # Method 3: From sector averages if still not found
-        if pd.isna(industry_pe):
-            sector_map = {
-                'Technology': 25,
-                'Healthcare': 22,
-                'Consumer Cyclical': 18,
-                'Financial Services': 15,
-                'Industrials': 20,
-                'Consumer Defensive': 18,
-                'Energy': 12,
-                'Basic Materials': 15,
-                'Real Estate': 16,
-                'Utilities': 14,
-                'Communication Services': 20
-            }
-            sector = info.get('sector', None)
-            if sector in sector_map:
-                industry_pe = sector_map[sector]
-        
-        # If forward PE is still not found, estimate it from PE
-        if pd.isna(industry_fwd_pe) and not pd.isna(industry_pe):
-            industry_fwd_pe = industry_pe * 0.9  # Usually forward P/E is slightly lower
-            
-        # If PE is still not found, estimate it from forward PE
-        if pd.isna(industry_pe) and not pd.isna(industry_fwd_pe):
-            industry_pe = industry_fwd_pe * 1.1
-            
-        # If both are still not found, use market averages
-        if pd.isna(industry_pe):
-            industry_pe = 20
-        if pd.isna(industry_fwd_pe):
-            industry_fwd_pe = 18
-            
-        return industry_pe, industry_fwd_pe
-        
-    except Exception as e:
-        print(f"Error getting industry metrics: {str(e)}")
-        return 20, 18  # Return market averages as fallback
-        
-def calculate_valuation_metrics(ticker, info, ratios):
-    """Calculate valuation metrics for a stock using industry PE comparison method"""
-    try:
-        stock = yf.Ticker(ticker)
-        
-        # Get basic metrics
-        current_price = info.get('currentPrice', np.nan)
-        
-        # Get EPS values, first try from info
-        current_eps = info.get('trailingEps', np.nan)
-        forward_eps = info.get('forwardEps', np.nan)
-        
-        # If EPS values are not available, calculate them
-        if pd.isna(current_eps) or pd.isna(forward_eps):
-            calc_current_eps, calc_forward_eps = calculate_eps_values(stock)
-            
-            if calc_current_eps is not None:
-                current_eps = calc_current_eps
-            if calc_forward_eps is not None:
-                forward_eps = calc_forward_eps
-        
-        # Get industry PE ratios from improved function
-        industry_pe, industry_fwd_pe = get_industry_metrics(stock, info)
-        
-        # Print debug information
-        print(f"\nDebug info for {ticker}:")
-        print(f"Current EPS: {current_eps}")
-        print(f"Forward EPS: {forward_eps}")
-        print(f"Industry PE: {industry_pe}")
-        print(f"Industry FWD PE: {industry_fwd_pe}")
-        
-        # Validate we have all required data
-        if (pd.isna(current_eps) or pd.isna(forward_eps) or 
-            current_eps <= 0 or forward_eps <= 0):  # Check for negative earnings
-            
-            return {
-                'Current EPS': current_eps,
-                'Forward EPS': forward_eps,
-                'Industry P/E': industry_pe,
-                'Industry FWD P/E': industry_fwd_pe,
-                'Fair Value': np.nan,
-                'Value Range': "N/A",
-                'Valuation Status': "Unable to Calculate - Negative Earnings",
-                'Upside Potential (%)': np.nan,
-                'Downside Risk (%)': np.nan,
-                'Industry': info.get('industry', 'N/A'),
-                'Sector': info.get('sector', 'N/A')
-            }
-        
-        # Calculate fair values
-        upper_bound = industry_pe * current_eps
-        lower_bound = industry_fwd_pe * forward_eps
-        
-        # Calculate conservative values (15% below industry averages)
-        conservative_upper = industry_pe * 0.85 * current_eps
-        conservative_lower = industry_fwd_pe * 0.85 * forward_eps
-        
-        # Calculate average fair value
-        fair_value = (upper_bound + lower_bound) / 2
-        
-        # Determine valuation status
-        if current_price < conservative_lower:
-            valuation_status = "Undervalued"
-        elif current_price > upper_bound:
-            valuation_status = "Overvalued"
-        else:
-            valuation_status = "Fair Valued"
-        
-        # Calculate potential returns
-        upside_potential = ((upper_bound - current_price) / current_price) * 100
-        downside_risk = ((current_price - conservative_lower) / current_price) * 100
-        
-        return {
-            'Current EPS': current_eps,
-            'Forward EPS': forward_eps,
-            'Industry P/E': industry_pe,
-            'Industry FWD P/E': industry_fwd_pe,
-            'Fair Value': fair_value,
-            'Value Range': f"${lower_bound:.2f} - ${upper_bound:.2f}",
-            'Conservative Range': f"${conservative_lower:.2f} - ${conservative_upper:.2f}",
-            'Valuation Status': valuation_status,
-            'Upside Potential (%)': upside_potential,
-            'Downside Risk (%)': downside_risk,
-            'Industry': info.get('industry', 'N/A'),
-            'Sector': info.get('sector', 'N/A')
-        }
-            
-    except Exception as e:
-        print(f"Error in valuation calculation: {str(e)}")
-        return {
-            'Current EPS': np.nan,
-            'Forward EPS': np.nan,
-            'Industry P/E': np.nan,
-            'Industry FWD P/E': np.nan,
-            'Fair Value': np.nan,
-            'Value Range': "N/A",
-            'Conservative Range': "N/A",
-            'Valuation Status': "Error in Calculation",
-            'Upside Potential (%)': np.nan,
-            'Downside Risk (%)': np.nan,
-            'Industry': "N/A",
-            'Sector': "N/A"
-        }
-        
-def calculate_rating(ratios):
-    """Calculate rating based on key metrics"""
-    weights = {
-        'Gross Margin (%)': 0.15,
-        'Operating Margin (%)': 0.20,
-        'ROCE (%)': 0.20,
-        'Cash Conversion (%)': 0.15,
-        'Debt to Equity': 0.15,
-        'Interest Coverage': 0.15
-    }
-    
-    thresholds = get_color_thresholds()
-    score = 0
-    total_weight = 0
-    
-    for metric, weight in weights.items():
-        if metric in ratios and not pd.isna(ratios[metric]):
-            value = ratios[metric]
-            if metric == 'Debt to Equity':  # Lower is better for Debt to Equity
-                if value <= thresholds[metric]['good']:
-                    score += weight * 3
-                elif value <= thresholds[metric]['neutral']:
-                    score += weight * 2
-                else:
-                    score += weight * 1
-            else:  # Higher is better for other metrics
-                if value >= thresholds[metric]['good']:
-                    score += weight * 3
-                elif value >= thresholds[metric]['neutral']:
-                    score += weight * 2
-                else:
-                    score += weight * 1
-            total_weight += weight
-    
-    if total_weight > 0:
-        final_score = (score / total_weight)
-        # Convert to letter grade
-        if final_score >= 2.7:
-            return 'A'
-        elif final_score >= 2.3:
-            return 'B'
-        elif final_score >= 2.0:
-            return 'C'
-        elif final_score >= 1.7:
-            return 'D'
-        else:
-            return 'F'
-    return 'N/A'
-
-def style_dataframe(df):
-    """Apply color styling to dataframe based on thresholds"""
-    thresholds = get_color_thresholds()
-    
-    def color_cells(value, metric):
-        # Handle non-numeric and special cases
-        if pd.isna(value) or value == "N/A":
-            return 'background-color: gray'
-            
-        # Special handling for Rating column
-        if metric == 'Rating':
-            if value in ['A', 'B']:
-                return 'background-color: lightgreen'
-            elif value in ['C']:
-                return 'background-color: lightgray'
-            elif value in ['D', 'F']:
-                return 'background-color: lightcoral'
-            return ''
-            
-        # Special handling for Valuation Status column
-        if metric == 'Valuation Status':
-            if value == 'Undervalued':
-                return 'background-color: lightgreen'
-            elif value == 'Overvalued':
-                return 'background-color: lightcoral'
-            elif value == 'Fair Valued':
-                return 'background-color: lightgray'
-            return ''
-        
-        # Handle numeric metrics
-        if metric in thresholds:
-            try:
-                value = float(value)
-                if 'reverse' in thresholds[metric] and thresholds[metric]['reverse']:
-                    if value <= thresholds[metric]['good']:
-                        return 'background-color: lightgreen'
-                    elif value <= thresholds[metric]['neutral']:
-                        return 'background-color: lightgray'
-                    else:
-                        return 'background-color: lightcoral'
-                else:
-                    if value >= thresholds[metric]['good']:
-                        return 'background-color: lightgreen'
-                    elif value >= thresholds[metric]['neutral']:
-                        return 'background-color: lightgray'
-                    else:
-                        return 'background-color: lightcoral'
-            except:
-                return ''
-        
-        return ''
-
-    # Initialize style
-    styled_df = df.style
-    
-    # Apply styling column by column
-    for column in df.columns:
-        if column in thresholds or column in ['Valuation Status', 'Rating']:
-            styled_df = styled_df.applymap(lambda x: color_cells(x, column), subset=[column])
-    
-    return styled_df
-
-def calculate_ratios(ticker):
-    """Calculate financial ratios for a given ticker"""
-    try:
-        # Fetch stock data
         stock = yf.Ticker(ticker)
         
         # Get financial statements
         income_stmt = stock.financials
         balance_sheet = stock.balance_sheet
-        cash_flow = stock.cashflow
+        cashflow = stock.cashflow
+        
+        # Current market data
         info = stock.info
-
-        # Calculate ratios
-        ratios = {}
-
-        # ROCE and ROIC Calculations
-        try:
-            # Extract required values
-            total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
-            
-            # Try different field names for current liabilities
-            current_liabilities_fields = [
-                'Total Current Liabilities',
-                'Current Liabilities',
-                'Total Current Liab'
-            ]
-            
-            current_liabilities = None
-            for field in current_liabilities_fields:
-                if field in balance_sheet.index:
-                    current_liabilities = balance_sheet.loc[field, balance_sheet.columns[0]]
-                    break
-            
-            if current_liabilities is None:
-                raise ValueError("Could not find current liabilities")
-
-            # Try different field names for operating income
-            operating_income_fields = [
-                'Operating Income',
-                'EBIT',
-                'Operating Income Or Loss',
-                'Income Before Tax'
-            ]
-            
-            operating_income = None
-            for field in operating_income_fields:
-                if field in income_stmt.index:
-                    operating_income = income_stmt.loc[field, income_stmt.columns[0]]
-                    break
-            
-            if operating_income is None:
-                raise ValueError("Could not find operating income")
-
-            # Try different field names for net income
-            net_income_fields = [
-                'Net Income',
-                'Net Income Common Stockholders',
-                'Net Income From Continuing Ops'
-            ]
-            
-            net_income = None
-            for field in net_income_fields:
-                if field in income_stmt.index:
-                    net_income = income_stmt.loc[field, income_stmt.columns[0]]
-                    break
-            
-            if net_income is None:
-                raise ValueError("Could not find net income")
-
-            # Calculate Capital Employed
-            capital_employed = total_assets - current_liabilities
-
-            # Calculate ROCE
-            if capital_employed != 0 and operating_income is not None:
-                roce = (operating_income / capital_employed) * 100
-                ratios['ROCE (%)'] = roce
-            else:
-                ratios['ROCE (%)'] = np.nan
-
-            # Calculate ROIC
-            if capital_employed != 0 and net_income is not None:
-                roic = (net_income / capital_employed) * 100
-                ratios['ROIC (%)'] = roic
-            else:
-                ratios['ROIC (%)'] = np.nan
-
-        except Exception as e:
-            ratios['ROCE (%)'] = np.nan
-            ratios['ROIC (%)'] = np.nan
-
-        # Market Price and P/E
-        try:
-            ratios['Market Price'] = info.get('currentPrice', np.nan)
-            ratios['P/E Ratio'] = info.get('trailingPE', np.nan)
-        except Exception as e:
-            ratios.update({
-                'Market Price': np.nan,
-                'P/E Ratio': np.nan
-            })
-
-        # Growth Rates
-        try:
-            # EPS Growth Rate
-            if 'Basic EPS' in income_stmt.index:
-                eps_growth = calculate_growth_rate(income_stmt.loc['Basic EPS'])
-                ratios['EPS Growth Rate (%)'] = eps_growth
-            
-            # Revenue Growth Rate
-            if 'Total Revenue' in income_stmt.index:
-                revenue_growth = calculate_growth_rate(income_stmt.loc['Total Revenue'])
-                ratios['Revenue Growth Rate (%)'] = revenue_growth
-        except Exception as e:
-            ratios.update({
-                'EPS Growth Rate (%)': np.nan,
-                'Revenue Growth Rate (%)': np.nan
-            })
-
-        # Add valuation metrics
-        valuation_metrics = calculate_valuation_metrics(ticker, info, ratios)
-        ratios.update(valuation_metrics)
-
-        # Profitability Ratios
-        try:
-            if 'Gross Profit' in income_stmt.index and 'Total Revenue' in income_stmt.index:
-                gross_profit = income_stmt.loc['Gross Profit', income_stmt.columns[0]]
-                revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
-                ratios['Gross Margin (%)'] = (gross_profit / revenue) * 100 if revenue != 0 else np.nan
-            
-            if 'Operating Income' in income_stmt.index and 'Total Revenue' in income_stmt.index:
-                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
-                revenue = income_stmt.loc['Total Revenue', income_stmt.columns[0]]
-                ratios['Operating Margin (%)'] = (operating_income / revenue) * 100 if revenue != 0 else np.nan
-        except Exception as e:
-            ratios.update({
-                'Gross Margin (%)': np.nan,
-                'Operating Margin (%)': np.nan
-            })
-
-        # Debt to Equity
-        try:
-            if 'Long Term Debt' in balance_sheet.index and 'Short Term Debt' in balance_sheet.index:
-                long_term_debt = balance_sheet.loc['Long Term Debt', balance_sheet.columns[0]]
-                short_term_debt = balance_sheet.loc['Short Term Debt', balance_sheet.columns[0]]
-                total_debt = long_term_debt + short_term_debt
-                total_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
-                ratios['Debt to Equity'] = (total_debt / total_equity) if total_equity != 0 else np.nan
-            else:
-                ratios['Debt to Equity'] = info.get('debtToEquity', np.nan)
-                if ratios['Debt to Equity'] is not None:
-                    ratios['Debt to Equity'] = ratios['Debt to Equity'] / 100
-        except Exception as e:
-            ratios['Debt to Equity'] = np.nan
-
-        # Cash Conversion and Interest Coverage
-        try:
-            if 'Operating Cash Flow' in cash_flow.index and 'Net Income' in income_stmt.index:
-                operating_cash_flow = cash_flow.loc['Operating Cash Flow', cash_flow.columns[0]]
-                net_income = income_stmt.loc['Net Income', income_stmt.columns[0]]
-                ratios['Cash Conversion (%)'] = (operating_cash_flow / net_income) * 100 if net_income != 0 else np.nan
-
-            if 'Interest Expense' in income_stmt.index and 'Operating Income' in income_stmt.index:
-                interest_expense = abs(income_stmt.loc['Interest Expense', income_stmt.columns[0]])
-                operating_income = income_stmt.loc['Operating Income', income_stmt.columns[0]]
-                ratios['Interest Coverage'] = (operating_income / interest_expense) if interest_expense != 0 else np.nan
-        except Exception as e:
-            ratios.update({
-                'Cash Conversion (%)': np.nan,
-                'Interest Coverage': np.nan
-            })
-
-        return ratios, None
-    
+        market_price = info.get('currentPrice', np.nan)
+        market_cap = info.get('marketCap', np.nan)
+        
+        # Calculate metrics
+        # Revenue Growth
+        latest_revenue = income_stmt.loc['Total Revenue'][0]
+        prev_revenue = income_stmt.loc['Total Revenue'][1]
+        revenue_growth = ((latest_revenue - prev_revenue) / prev_revenue) * 100
+        
+        # ROCE
+        operating_profit = income_stmt.loc.get('Operating Income', income_stmt.loc.get('EBIT', 0))[0]
+        total_assets = balance_sheet.loc['Total Assets'][0]
+        current_liabilities = balance_sheet.loc['Total Current Liabilities'][0]
+        capital_employed = total_assets - current_liabilities
+        roce = (operating_profit / capital_employed) * 100 if capital_employed != 0 else 0
+        
+        # Gross Margin
+        gross_profit = income_stmt.loc['Gross Profit'][0]
+        gross_margin = (gross_profit / latest_revenue) * 100 if latest_revenue != 0 else 0
+        
+        # Operating Profit Margin
+        operating_margin = (operating_profit / latest_revenue) * 100 if latest_revenue != 0 else 0
+        
+        # Cash Conversion
+        operating_cash_flow = cashflow.loc['Operating Cash Flow'][0]
+        cash_conversion = (latest_revenue / operating_cash_flow) * 100 if operating_cash_flow != 0 else 0
+        
+        # Leverage
+        total_debt = balance_sheet.loc.get('Total Debt', 0)[0]
+        total_equity = balance_sheet.loc['Total Stockholder Equity'][0]
+        leverage = (total_debt / total_equity) * 100 if total_equity != 0 else 0
+        
+        # Interest Coverage
+        interest_expense = abs(income_stmt.loc.get('Interest Expense', 0)[0])
+        interest_coverage = operating_profit / interest_expense if interest_expense != 0 else 0
+        
+        return {
+            'Ticker': ticker,
+            'Market Price': market_price,
+            'Market Cap': market_cap,
+            'Revenue Growth (%)': revenue_growth,
+            'ROCE (%)': roce,
+            'Gross Margin (%)': gross_margin,
+            'Operating Margin (%)': operating_margin,
+            'Cash Conversion (%)': cash_conversion,
+            'Leverage (%)': leverage,
+            'Interest Coverage': interest_coverage
+        }
     except Exception as e:
-        return None, f"Error processing {ticker}: {str(e)}"
+        st.error(f"Error processing {ticker}: {str(e)}")
+        return None
+
+def get_cell_color(value, metric):
+    """Determine cell background color based on metric thresholds"""
+    if pd.isna(value):
+        return ''
+        
+    colors = {
+        'ROCE (%)': [(20, 'lightgreen'), (25, 'darkgreen')],
+        'Gross Margin (%)': [(50, 'lightgreen'), (75, 'darkgreen')],
+        'Operating Margin (%)': [(20, 'lightgreen'), (25, 'darkgreen')],
+        'Cash Conversion (%)': [(98, 'lightgreen'), (100, 'darkgreen')],
+        'Leverage (%)': [(25, 'lightgreen'), (40, 'darkgreen')],
+        'Interest Coverage': [(14, 'lightgreen'), (16, 'darkgreen')]
+    }
+    
+    if metric in colors:
+        thresholds = colors[metric]
+        for threshold, color in reversed(thresholds):
+            if value > threshold:
+                return f'background-color: {color}'
+    return ''
 
 def main():
-    st.title("Stock Financial Ratio Analysis")
+    st.title("Terry Smith Investment Analysis")
     
-    st.write("""
-    Enter one or more stock tickers to analyze their financial ratios.
-    For multiple stocks, separate them with commas (e.g., AAPL, MSFT, GOOGL)
-    """)
-    
-    ticker_input = st.text_input(
-        "Enter stock ticker(s)",
-        placeholder="e.g., AAPL, MSFT, GOOGL"
-    )
+    # Input for tickers
+    tickers_input = st.text_input("Enter stock tickers (comma-separated)", "AAPL,MSFT,GOOGL")
     
     if st.button("Analyze"):
-        if ticker_input:
-            tickers = [t.strip().upper() for t in ticker_input.split(",")]
-            progress_bar = st.progress(0)
-            all_ratios = {}
-            errors = []
-            ratings = {}
-            
-            for i, ticker in enumerate(tickers):
-                with st.spinner(f"Processing {ticker}..."):
-                    ratios, error = calculate_ratios(ticker)
-                    
-                    if error:
-                        errors.append(error)
-                    else:
-                        all_ratios[ticker] = ratios
-                        # Calculate rating
-                        ratings[ticker] = calculate_rating(ratios)
-                    
-                    progress_bar.progress((i + 1) / len(tickers))
-            
-            if all_ratios:
-                # Convert to DataFrame
-                df = pd.DataFrame(all_ratios).T
-                
-                # Add ratings column
-                df['Rating'] = pd.Series(ratings)
-                
-                # Reorder columns
-                column_order = [
-                    'Rating',
-                    'Market Price',
-                    'Fair Value',
-                    'Value Range',
-                    'Conservative Range',
-                    'Valuation Status',
-                    'Current EPS',
-                    'Forward EPS',
-                    'Industry P/E',
-                    'Industry FWD P/E',
-                    'Industry',
-                    'Sector',
-                    'Upside Potential (%)',
-                    'Downside Risk (%)',
-                    'Gross Margin (%)',
-                    'Operating Margin (%)',
-                    'ROCE (%)',
-                    'Cash Conversion (%)',
-                    'Debt to Equity',
-                    'Interest Coverage'
-                ]
-                
-                existing_columns = [col for col in column_order if col in df.columns]
-                df = df[existing_columns]
-                
-                # Round all numbers to 2 decimal places
-                df = df.round(2)
-                
-                # Apply styling
-                styled_df = style_dataframe(df)
-                
-                st.write("### Financial Ratios Analysis")
-                st.dataframe(styled_df)
-                
-                # Add descriptions
-                st.write("### Valuation Analysis")
-                st.write("""
-                **Valuation Metrics**:
-                - Fair Value: Calculated based on forward P/E and industry comparisons
-                - Value Range: Conservative to optimistic value range
-                - Valuation Status: Indicates if the stock is Undervalued, Fair Valued, or Overvalued
-                - Forward P/E: Expected price-to-earnings ratio based on projected earnings
-                - Industry P/E: Average P/E ratio for the industry
-                - Upside Potential: Potential percentage gain to optimistic value
-                - Downside Risk: Potential percentage loss to conservative value
-                """)
-
-                st.write("### Rating System")
-                st.write("""
-                **Rating Criteria**:
-                - A: Excellent financial health and performance
-                - B: Good financial health and performance
-                - C: Average financial health and performance
-                - D: Below average financial health and performance
-                - F: Poor financial health and performance
-                
-                **Key Metrics and Thresholds**:
-                - Gross Margin: Good > 40%, Neutral > 20%
-                - Operating Margin: Good > 15%, Neutral > 8%
-                - ROCE: Good > 15%, Neutral > 10%
-                - Cash Conversion: Good > 90%, Neutral > 70%
-                - Debt to Equity: Good < 1.0, Neutral < 2.0
-                - Interest Coverage: Good > 5x, Neutral > 2x
-                """)
-                
-                st.write("### Metric Descriptions")
-                st.write("""
-                **Market Metrics**:
-                - Market Price: Current stock price
-                - P/E Ratio: Price to Earnings ratio
-                - EPS Growth Rate: Year-over-year growth in Earnings Per Share
-                - Revenue Growth Rate: Year-over-year growth in Total Revenue
-                
-                **Profitability**:
-                - Gross Margin (%): (Gross Profit / Revenue) × 100
-                - Operating Margin (%): (Operating Income / Revenue) × 100
-                - ROCE (%): (Operating Income / Capital Employed) × 100
-                - ROIC (%): (Net Income / Invested Capital) × 100
-                
-                **Cash & Stability**:
-                - Cash Conversion (%): (Operating Cash Flow / Net Income) × 100
-                - Debt to Equity: Total Debt / Total Equity
-                - Interest Coverage: Operating Income / Interest Expense
-                """)
-
-                # Add time period information to descriptions
-                st.write("### Data Time Periods")
-                st.write("""
-                - Financial Ratios: Based on latest quarterly and annual reports
-                - Market Data: Real-time or delayed based on exchange
-                - Growth Rates: Year-over-year comparison
-                - Valuation Metrics: Forward-looking based on analyst estimates
+        tickers = [ticker.strip() for ticker in tickers_input.split(',')]
         
-        Note: Check 'Latest Quarter' and 'Latest Annual' columns for specific dates of financial data.
-        """)
-
-                
+        # Create progress bar
+        progress_bar = st.progress(0)
+        
+        # Process each ticker
+        results = []
+        for i, ticker in enumerate(tickers):
+            result = fetch_financial_metrics(ticker)
+            if result:
+                results.append(result)
+            progress_bar.progress((i + 1) / len(tickers))
+        
+        if results:
+            # Create DataFrame
+            df = pd.DataFrame(results)
             
-            # Display any errors
-            if errors:
-                st.error("Errors encountered:")
-                for error in errors:
-                    st.write(error)
+            # Format numbers
+            format_dict = {
+                'Market Price': '${:,.2f}',
+                'Market Cap': '${:,.0f}',
+                'Revenue Growth (%)': '{:.1f}%',
+                'ROCE (%)': '{:.1f}%',
+                'Gross Margin (%)': '{:.1f}%',
+                'Operating Margin (%)': '{:.1f}%',
+                'Cash Conversion (%)': '{:.1f}%',
+                'Leverage (%)': '{:.1f}%',
+                'Interest Coverage': '{:.1f}'
+            }
+            
+            for col, format_str in format_dict.items():
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: format_str.format(x) if pd.notnull(x) else 'N/A')
+            
+            # Apply color styling
+            def style_df(df):
+                return df.style.apply(lambda x: [get_cell_color(float(str(val).replace('$', '').replace(',', '').replace('%', '')) 
+                                               if isinstance(val, str) and any(c.isdigit() for c in val) else ''
+                                               for val in x], 
+                                    axis=1)
+            
+            styled_df = style_df(df)
+            st.dataframe(styled_df)
 
 if __name__ == "__main__":
     main()
