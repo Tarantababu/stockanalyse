@@ -58,7 +58,7 @@ if st.button("Search"):
 
     # Color the metrics based on conditions
     def apply_colors(val, threshold_1, threshold_2, color_light, color_dark):
-        if val is not None:
+        if pd.notna(val):  # Only apply if val is not None or NaN
             if val > threshold_2:
                 return f"background-color: {color_dark}"
             elif val > threshold_1:
@@ -66,6 +66,7 @@ if st.button("Search"):
         return ""
 
     def highlight_metrics(row):
+        # Specify the conditions for each column requiring color coding
         colors = {
             "ROCE (%)": (20, 25, "lightgreen", "darkgreen"),
             "Gross Margin (%)": (50, 75, "lightgreen", "darkgreen"),
@@ -74,13 +75,19 @@ if st.button("Search"):
             "Leverage (%)": (25, 40, "lightgreen", "darkgreen"),
             "Interest Cover": (14, 16, "lightgreen", "darkgreen"),
         }
+        
+        # Apply colors to each column in the row
         styles = []
-        for column, (threshold_1, threshold_2, color_light, color_dark) in colors.items():
-            val = row[column]
-            styles.append(apply_colors(val, threshold_1, threshold_2, color_light, color_dark))
+        for column in row.index:
+            if column in colors:
+                threshold_1, threshold_2, color_light, color_dark = colors[column]
+                styles.append(apply_colors(row[column], threshold_1, threshold_2, color_light, color_dark))
+            else:
+                styles.append("")  # No styling for columns without conditions
         return styles
 
+    # Apply highlighting function and ensure correct row-wise application
     styled_data = data.style.apply(highlight_metrics, axis=1)
 
     # Display the styled dataframe
-    st.write(styled_data, unsafe_allow_html=True)
+    st.dataframe(styled_data)
