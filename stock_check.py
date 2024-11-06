@@ -36,10 +36,16 @@ def calculate_metrics(data):
             revenue_growth = (info.get("revenueGrowth") or 0) * 100
 
             # Gross Margin calculation
-            gross_margin = (gross_profit / total_revenue * 100) if gross_profit and total_revenue else None
+            if gross_profit and total_revenue:
+                gross_margin = (gross_profit / total_revenue) * 100
+            else:
+                gross_margin = None
 
             # Operating Profit Margin calculation
-            operating_profit_margin = (operating_income / total_revenue * 100) if operating_income and total_revenue else None
+            if operating_income and total_revenue:
+                operating_profit_margin = (operating_income / total_revenue) * 100
+            else:
+                operating_profit_margin = None
 
             # Capital Employed calculation
             if total_assets is not None and current_liabilities is not None:
@@ -50,16 +56,28 @@ def calculate_metrics(data):
                 capital_employed = None
             
             # ROCE calculation
-            roce = (operating_income / capital_employed * 100) if operating_income and capital_employed else None
+            if operating_income and capital_employed:
+                roce = (operating_income / capital_employed) * 100
+            else:
+                roce = None
 
             # Cash Conversion Ratio calculation
-            cash_conversion = (operating_cashflow / total_revenue * 100) if operating_cashflow and total_revenue else None
+            if operating_cashflow and total_revenue:
+                cash_conversion = (operating_cashflow / total_revenue) * 100
+            else:
+                cash_conversion = None
 
             # Leverage Ratio calculation
-            leverage_ratio = (total_debt / total_equity * 100) if total_debt and total_equity else None
+            if total_debt and total_equity:
+                leverage_ratio = (total_debt / total_equity) * 100
+            else:
+                leverage_ratio = None
 
             # Interest Cover calculation
-            interest_cover = (operating_income / interest_expense) if operating_income and interest_expense else None
+            if operating_income and interest_expense:
+                interest_cover = operating_income / interest_expense
+            else:
+                interest_cover = None
 
             metrics.append([
                 ticker, price, market_cap, revenue_growth, roce, gross_margin, operating_profit_margin, cash_conversion, leverage_ratio, interest_cover
