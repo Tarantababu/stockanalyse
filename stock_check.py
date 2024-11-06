@@ -58,10 +58,11 @@ if st.button("Search"):
 
     # Color the metrics based on conditions
     def apply_colors(val, threshold_1, threshold_2, color_light, color_dark):
-        if val > threshold_2:
-            return f"background-color: {color_dark}"
-        elif val > threshold_1:
-            return f"background-color: {color_light}"
+        if val is not None:
+            if val > threshold_2:
+                return f"background-color: {color_dark}"
+            elif val > threshold_1:
+                return f"background-color: {color_light}"
         return ""
 
     def highlight_metrics(row):
