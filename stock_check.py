@@ -1,136 +1,206 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
+import time
 
-# Set Streamlit page title and layout
-st.title("Terry Smith's Investment Metrics App")
-st.markdown("Add tickers separated by commas and click search to view metrics.")
-
-# Input section for comma-separated tickers
-tickers_input = st.text_input("Enter Tickers (comma-separated)", "AAPL, MSFT, GOOGL")
-tickers = [ticker.strip().upper() for ticker in tickers_input.split(",")]
-
-# Define metrics calculations
-def calculate_metrics(data):
-    metrics = []
-    for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            
-            # Retrieve required financial data
-            price = info.get("currentPrice")
-            market_cap = info.get("marketCap")
-            total_revenue = info.get("totalRevenue")
-            gross_profits = info.get("grossProfits")
-            operating_cashflow = info.get("operatingCashflow")
-            total_debt = info.get("totalDebt")
-            total_assets = info.get("totalAssets")
-            total_current_liabilities = info.get("totalCurrentLiabilities")
-            total_stockholder_equity = info.get("totalStockholderEquity")
-            interest_expense = info.get("interestExpense")
-            ebit = info.get("ebit")  # Operating Profit / EBIT
-
-            # Calculate metrics with additional None checks to avoid errors
-            metrics_dict = {}
-            
-            # 1. Interest Coverage Ratio: Operating Profit / Interest Expense
-            if ebit is not None and interest_expense is not None and interest_expense != 0:
-                metrics_dict["Interest Coverage"] = ebit / interest_expense
-            else:
-                metrics_dict["Interest Coverage"] = None  # Avoid division by zero or missing data
-
-            # 2. Leverage Ratio: Total Debt / Total Equity
-            if total_debt is not None and total_stockholder_equity is not None and total_stockholder_equity != 0:
-                metrics_dict["Leverage (%)"] = (total_debt / total_stockholder_equity) * 100
-            else:
-                metrics_dict["Leverage (%)"] = None  # Avoid division by zero or missing data
-
-            # 3. Operating Profit (EBIT) Margin: (Operating Profit / Revenue) * 100
-            if ebit is not None and total_revenue is not None and total_revenue != 0:
-                metrics_dict["Operating Profit Margin (%)"] = (ebit / total_revenue) * 100
-            else:
-                metrics_dict["Operating Profit Margin (%)"] = None  # Avoid division by zero or missing data
-
-            # 4. Gross Margin: (Gross Profit / Revenue) * 100
-            if gross_profits is not None and total_revenue is not None and total_revenue != 0:
-                metrics_dict["Gross Margin (%)"] = (gross_profits / total_revenue) * 100
-            else:
-                metrics_dict["Gross Margin (%)"] = None  # Avoid division by zero or missing data
-
-            # 5. Return on Capital Employed (ROCE): (Operating Profit / Capital Employed) * 100
-            if ebit is not None and total_assets is not None and total_current_liabilities is not None:
+def fetch_financial_metrics(ticker):
+    """Fetch and calculate financial metrics for a given ticker"""
+    try:
+        # Add delay between requests to avoid rate limiting
+        time.sleep(1)
+        
+        stock = yf.Ticker(ticker)
+        
+        # Get financial statements with retries
+        max_retries = 3
+        for _ in range(max_retries):
+            try:
+                # Get the financial data
+                financials = stock.financials
+                balance_sheet = stock.balance_sheet
+                cashflow = stock.cashflow
+                info = stock.info
+                
+                # Get the most recent values (first column)
+                ebit = financials.loc['Operating Income', financials.columns[0]]
+                interest_expense = abs(financials.loc['Interest Expense', financials.columns[0]])
+                total_revenue = financials.loc['Total Revenue', financials.columns[0]]
+                gross_profits = financials.loc['Gross Profit', financials.columns[0]]
+                
+                # Balance sheet items
+                total_assets = balance_sheet.loc['Total Assets', balance_sheet.columns[0]]
+                total_current_liabilities = balance_sheet.loc['Total Current Liabilities', balance_sheet.columns[0]]
+                total_debt = balance_sheet.loc['Total Debt', balance_sheet.columns[0]]
+                total_stockholder_equity = balance_sheet.loc['Total Stockholder Equity', balance_sheet.columns[0]]
+                
+                # Cash flow items
+                operating_cashflow = cashflow.loc['Operating Cash Flow', cashflow.columns[0]]
+                
+                # Current market data
+                market_price = info.get('currentPrice', np.nan)
+                market_cap = info.get('marketCap', np.nan)
+                
+                # Calculate metrics exactly as specified
+                metrics = {
+                    'Ticker': ticker,
+                    'Market Price': market_price,
+                    'Market Cap': market_cap
+                }
+                
+                # 1. Interest Coverage Ratio
+                if interest_expense != 0:
+                    metrics["Interest Coverage"] = ebit / interest_expense
+                else:
+                    metrics["Interest Coverage"] = None
+                
+                # 2. Leverage Ratio
+                if total_stockholder_equity != 0:
+                    metrics["Leverage (%)"] = (total_debt / total_stockholder_equity) * 100
+                else:
+                    metrics["Leverage (%)"] = None
+                
+                # 3. Operating Profit (EBIT) Margin
+                if total_revenue != 0:
+                    metrics["Operating Margin (%)"] = (ebit / total_revenue) * 100
+                else:
+                    metrics["Operating Margin (%)"] = None
+                
+                # 4. Gross Margin
+                if total_revenue != 0:
+                    metrics["Gross Margin (%)"] = (gross_profits / total_revenue) * 100
+                else:
+                    metrics["Gross Margin (%)"] = None
+                
+                # 5. Return on Capital Employed (ROCE)
                 capital_employed = total_assets - total_current_liabilities
                 if capital_employed != 0:
-                    metrics_dict["ROCE (%)"] = (ebit / capital_employed) * 100
+                    metrics["ROCE (%)"] = (ebit / capital_employed) * 100
                 else:
-                    metrics_dict["ROCE (%)"] = None  # Avoid division by zero or missing data
-            else:
-                metrics_dict["ROCE (%)"] = None
+                    metrics["ROCE (%)"] = None
+                
+                # 6. Cash Conversion Ratio
+                if operating_cashflow != 0:
+                    metrics["Cash Conversion (%)"] = (total_revenue / operating_cashflow) * 100
+                else:
+                    metrics["Cash Conversion (%)"] = None
+                
+                # Calculate Revenue Growth
+                if len(financials.columns) >= 2:
+                    prev_revenue = financials.loc['Total Revenue', financials.columns[1]]
+                    if prev_revenue != 0:
+                        metrics["Revenue Growth (%)"] = ((total_revenue - prev_revenue) / prev_revenue) * 100
+                    else:
+                        metrics["Revenue Growth (%)"] = None
+                else:
+                    metrics["Revenue Growth (%)"] = None
+                
+                return metrics
+                
+            except Exception as e:
+                st.warning(f"Retrying data fetch for {ticker}... ({str(e)})")
+                time.sleep(2)
+        else:
+            st.error(f"Failed to fetch data for {ticker} after {max_retries} attempts")
+            return None
 
-            # 6. Cash Conversion Ratio: (Net Sales / Operating Cash Flow) * 100
-            if total_revenue is not None and operating_cashflow is not None and operating_cashflow != 0:
-                metrics_dict["Cash Conversion (%)"] = (total_revenue / operating_cashflow) * 100
-            else:
-                metrics_dict["Cash Conversion (%)"] = None  # Avoid division by zero or missing data
+    except Exception as e:
+        st.error(f"Error processing {ticker}: {str(e)}")
+        return None
 
-            # Append data to metrics
-            metrics.append([
-                ticker, price, market_cap, 
-                info.get("revenueGrowth") * 100 if info.get("revenueGrowth") is not None else None,
-                metrics_dict["ROCE (%)"], 
-                metrics_dict["Gross Margin (%)"], 
-                metrics_dict["Operating Profit Margin (%)"], 
-                metrics_dict["Cash Conversion (%)"], 
-                metrics_dict["Leverage (%)"], 
-                metrics_dict["Interest Coverage"]
-            ])
-
-        except Exception as e:
-            st.write(f"Error retrieving data for {ticker}: {e}")
-
-    return pd.DataFrame(metrics, columns=[
-        "Ticker", "Market Price", "Market Cap", "Total Revenue Growth (%)", 
-        "ROCE (%)", "Gross Margin (%)", "Operating Profit Margin (%)", 
-        "Cash Conversion (%)", "Leverage (%)", "Interest Cover"
-    ])
-
-# Button to calculate and display metrics
-if st.button("Search"):
-    data = calculate_metrics(tickers)
-
-    # Color the metrics based on conditions
-    def apply_colors(val, threshold_1, threshold_2, color_light, color_dark):
-        if pd.notna(val):  # Only apply if val is not None or NaN
-            if val > threshold_2:
-                return f"background-color: {color_dark}"
-            elif val > threshold_1:
-                return f"background-color: {color_light}"
-        return ""
-
-    def highlight_metrics(row):
-        # Specify the conditions for each column requiring color coding
-        colors = {
-            "ROCE (%)": (20, 25, "lightgreen", "darkgreen"),
-            "Gross Margin (%)": (50, 75, "lightgreen", "darkgreen"),
-            "Operating Profit Margin (%)": (20, 25, "lightgreen", "darkgreen"),
-            "Cash Conversion (%)": (98, 100, "lightgreen", "darkgreen"),
-            "Leverage (%)": (25, 40, "lightgreen", "darkgreen"),
-            "Interest Cover": (14, 16, "lightgreen", "darkgreen"),
-        }
+def get_cell_color(value, metric):
+    """Determine cell background color based on metric thresholds"""
+    if pd.isna(value) or value is None:
+        return ''
         
-        # Apply colors to each column in the row
-        styles = []
-        for column in row.index:
-            if column in colors:
-                threshold_1, threshold_2, color_light, color_dark = colors[column]
-                styles.append(apply_colors(row[column], threshold_1, threshold_2, color_light, color_dark))
-            else:
-                styles.append("")  # No styling for columns without conditions
-        return styles
+    colors = {
+        'ROCE (%)': [(20, 'lightgreen'), (25, 'darkgreen')],
+        'Gross Margin (%)': [(50, 'lightgreen'), (75, 'darkgreen')],
+        'Operating Margin (%)': [(20, 'lightgreen'), (25, 'darkgreen')],
+        'Cash Conversion (%)': [(98, 'lightgreen'), (100, 'darkgreen')],
+        'Leverage (%)': [(25, 'lightgreen'), (40, 'darkgreen')],
+        'Interest Coverage': [(14, 'lightgreen'), (16, 'darkgreen')]
+    }
+    
+    if metric in colors:
+        thresholds = colors[metric]
+        for threshold, color in reversed(thresholds):
+            if value > threshold:
+                return f'background-color: {color}'
+    return ''
 
-    # Apply highlighting function and ensure correct row-wise application
-    styled_data = data.style.apply(highlight_metrics, axis=1)
+def apply_style(row, columns):
+    """Apply styling to each cell in the row"""
+    styles = []
+    for col_name, val in row.items():
+        if col_name in columns:
+            try:
+                # Clean the value string and convert to float
+                if pd.isna(val) or val == 'N/A':
+                    styles.append('')
+                else:
+                    clean_val = str(val).replace('$', '').replace(',', '').replace('%', '')
+                    if any(c.isdigit() for c in clean_val):
+                        num_val = float(clean_val)
+                        styles.append(get_cell_color(num_val, col_name))
+                    else:
+                        styles.append('')
+            except:
+                styles.append('')
+        else:
+            styles.append('')
+    return styles
 
-    # Display the styled dataframe
-    st.dataframe(styled_data)
+def main():
+    st.title("Terry Smith Investment Analysis")
+    
+    # Input for tickers
+    tickers_input = st.text_input("Enter stock tickers (comma-separated)", "AAPL,MSFT,GOOGL")
+    
+    if st.button("Analyze"):
+        tickers = [ticker.strip() for ticker in tickers_input.split(',')]
+        
+        # Create progress bar
+        progress_bar = st.progress(0)
+        
+        # Process each ticker
+        results = []
+        for i, ticker in enumerate(tickers):
+            st.write(f"Processing {ticker}...")
+            result = fetch_financial_metrics(ticker)
+            if result:
+                results.append(result)
+            progress_bar.progress((i + 1) / len(tickers))
+        
+        if results:
+            # Create DataFrame
+            df = pd.DataFrame(results)
+            
+            # Format numbers
+            format_dict = {
+                'Market Price': '${:,.2f}',
+                'Market Cap': '${:,.0f}',
+                'Revenue Growth (%)': '{:.1f}%',
+                'ROCE (%)': '{:.1f}%',
+                'Gross Margin (%)': '{:.1f}%',
+                'Operating Margin (%)': '{:.1f}%',
+                'Cash Conversion (%)': '{:.1f}%',
+                'Leverage (%)': '{:.1f}%',
+                'Interest Coverage': '{:.1f}'
+            }
+            
+            for col, format_str in format_dict.items():
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: format_str.format(x) if pd.notnull(x) and x is not None else 'N/A')
+            
+            # Apply styling
+            styled_df = df.style.apply(
+                apply_style,
+                columns=df.columns,
+                axis=1
+            )
+            
+            st.dataframe(styled_df)
+
+if __name__ == "__main__":
+    main()
