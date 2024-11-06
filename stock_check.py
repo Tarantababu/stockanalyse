@@ -29,15 +29,29 @@ def calculate_metrics(data):
             current_liabilities = info.get("totalCurrentLiabilities")
             total_equity = info.get("totalStockholderEquity")
             interest_expense = info.get("interestExpense")
-            operating_income = info.get("ebit")
+            operating_income = info.get("ebit")  # Earnings before interest and tax (EBIT)
 
-            # Calculate metrics
+            # Calculate metrics with fallback to manual calculation if not available directly
+            # Total Revenue Growth
             revenue_growth = (info.get("revenueGrowth") or 0) * 100
+
+            # Gross Margin calculation
             gross_margin = (gross_profit / total_revenue * 100) if gross_profit and total_revenue else None
+
+            # Operating Profit Margin calculation
             operating_profit_margin = (operating_income / total_revenue * 100) if operating_income and total_revenue else None
-            roce = (operating_income / (total_assets - current_liabilities) * 100) if operating_income and total_assets and current_liabilities else None
+
+            # ROCE calculation
+            capital_employed = (total_assets - current_liabilities) if total_assets and current_liabilities else (total_equity + total_debt)
+            roce = (operating_income / capital_employed * 100) if operating_income and capital_employed else None
+
+            # Cash Conversion Ratio calculation
             cash_conversion = (operating_cashflow / total_revenue * 100) if operating_cashflow and total_revenue else None
+
+            # Leverage Ratio calculation
             leverage_ratio = (total_debt / total_equity * 100) if total_debt and total_equity else None
+
+            # Interest Cover calculation
             interest_cover = (operating_income / interest_expense) if operating_income and interest_expense else None
 
             metrics.append([
