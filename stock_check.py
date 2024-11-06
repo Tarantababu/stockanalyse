@@ -41,8 +41,15 @@ def calculate_metrics(data):
             # Operating Profit Margin calculation
             operating_profit_margin = (operating_income / total_revenue * 100) if operating_income and total_revenue else None
 
+            # Capital Employed calculation
+            if total_assets is not None and current_liabilities is not None:
+                capital_employed = total_assets - current_liabilities
+            elif total_equity is not None and total_debt is not None:
+                capital_employed = total_equity + total_debt
+            else:
+                capital_employed = None
+            
             # ROCE calculation
-            capital_employed = (total_assets - current_liabilities) if total_assets and current_liabilities else (total_equity + total_debt)
             roce = (operating_income / capital_employed * 100) if operating_income and capital_employed else None
 
             # Cash Conversion Ratio calculation
