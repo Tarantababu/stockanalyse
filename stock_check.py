@@ -88,6 +88,25 @@ def get_cell_color(value, metric):
                 return f'background-color: {color}'
     return ''
 
+def apply_style(row, columns):
+    """Apply styling to each cell in the row"""
+    styles = []
+    for col_name, val in row.items():
+        if col_name in columns:
+            try:
+                # Clean the value string and convert to float
+                clean_val = str(val).replace('$', '').replace(',', '').replace('%', '')
+                if any(c.isdigit() for c in clean_val):
+                    num_val = float(clean_val)
+                    styles.append(get_cell_color(num_val, col_name))
+                else:
+                    styles.append('')
+            except:
+                styles.append('')
+        else:
+            styles.append('')
+    return styles
+
 def main():
     st.title("Terry Smith Investment Analysis")
     
@@ -129,14 +148,13 @@ def main():
                 if col in df.columns:
                     df[col] = df[col].apply(lambda x: format_str.format(x) if pd.notnull(x) else 'N/A')
             
-            # Apply color styling
-            def style_df(df):
-                return df.style.apply(lambda x: [get_cell_color(float(str(val).replace('$', '').replace(',', '').replace('%', '')) 
-                                               if isinstance(val, str) and any(c.isdigit() for c in val) else ''
-                                               for val in x], 
-                                    axis=1)
+            # Apply styling
+            styled_df = df.style.apply(
+                apply_style,
+                columns=df.columns,
+                axis=1
+            )
             
-            styled_df = style_df(df)
             st.dataframe(styled_df)
 
 if __name__ == "__main__":
