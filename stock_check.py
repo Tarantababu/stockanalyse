@@ -22,66 +22,70 @@ def calculate_metrics(data):
             price = info.get("currentPrice")
             market_cap = info.get("marketCap")
             total_revenue = info.get("totalRevenue")
-            gross_profit = info.get("grossProfits")
+            gross_profits = info.get("grossProfits")
             operating_cashflow = info.get("operatingCashflow")
             total_debt = info.get("totalDebt")
             total_assets = info.get("totalAssets")
-            current_liabilities = info.get("totalCurrentLiabilities")
-            total_equity = info.get("totalStockholderEquity")
+            total_current_liabilities = info.get("totalCurrentLiabilities")
+            total_stockholder_equity = info.get("totalStockholderEquity")
             interest_expense = info.get("interestExpense")
-            operating_income = info.get("ebit")  # Earnings before interest and tax (EBIT)
+            ebit = info.get("ebit")  # Operating Profit / EBIT
 
             # Calculate metrics with fallback to manual calculation if not available directly
-            # Total Revenue Growth
-            revenue_growth = (info.get("revenueGrowth") or 0) * 100
-
-            # Gross Margin calculation
-            if gross_profit and total_revenue:
-                gross_margin = (gross_profit / total_revenue) * 100
-            else:
-                gross_margin = None
-
-            # Operating Profit Margin calculation
-            if operating_income and total_revenue:
-                operating_profit_margin = (operating_income / total_revenue) * 100
-            else:
-                operating_profit_margin = None
-
-            # Capital Employed calculation
-            if total_assets is not None and current_liabilities is not None:
-                capital_employed = total_assets - current_liabilities
-            elif total_equity is not None and total_debt is not None:
-                capital_employed = total_equity + total_debt
-            else:
-                capital_employed = None
+            metrics_dict = {}
             
-            # ROCE calculation
-            if operating_income and capital_employed:
-                roce = (operating_income / capital_employed) * 100
+            # 1. Interest Coverage Ratio: Operating Profit / Interest Expense
+            if interest_expense and interest_expense != 0:
+                metrics_dict["Interest Coverage"] = ebit / interest_expense
             else:
-                roce = None
+                metrics_dict["Interest Coverage"] = None  # Avoid division by zero
 
-            # Cash Conversion Ratio calculation
-            if operating_cashflow and total_revenue:
-                cash_conversion = (operating_cashflow / total_revenue) * 100
+            # 2. Leverage Ratio: Total Debt / Total Equity
+            if total_stockholder_equity and total_stockholder_equity != 0:
+                metrics_dict["Leverage (%)"] = (total_debt / total_stockholder_equity) * 100
             else:
-                cash_conversion = None
+                metrics_dict["Leverage (%)"] = None  # Avoid division by zero
 
-            # Leverage Ratio calculation
-            if total_debt and total_equity:
-                leverage_ratio = (total_debt / total_equity) * 100
+            # 3. Operating Profit (EBIT) Margin: (Operating Profit / Revenue) * 100
+            if total_revenue and total_revenue != 0:
+                metrics_dict["Operating Profit Margin (%)"] = (ebit / total_revenue) * 100
             else:
-                leverage_ratio = None
+                metrics_dict["Operating Profit Margin (%)"] = None  # Avoid division by zero
 
-            # Interest Cover calculation
-            if operating_income and interest_expense:
-                interest_cover = operating_income / interest_expense
+            # 4. Gross Margin: (Gross Profit / Revenue) * 100
+            if total_revenue and total_revenue != 0:
+                metrics_dict["Gross Margin (%)"] = (gross_profits / total_revenue) * 100
             else:
-                interest_cover = None
+                metrics_dict["Gross Margin (%)"] = None  # Avoid division by zero
 
+            # 5. Return on Capital Employed (ROCE): (Operating Profit / Capital Employed) * 100
+            if total_assets is not None and total_current_liabilities is not None:
+                capital_employed = total_assets - total_current_liabilities
+                if capital_employed != 0:
+                    metrics_dict["ROCE (%)"] = (ebit / capital_employed) * 100
+                else:
+                    metrics_dict["ROCE (%)"] = None  # Avoid division by zero
+            else:
+                metrics_dict["ROCE (%)"] = None
+
+            # 6. Cash Conversion Ratio: (Net Sales / Operating Cash Flow) * 100
+            if operating_cashflow and operating_cashflow != 0:
+                metrics_dict["Cash Conversion (%)"] = (total_revenue / operating_cashflow) * 100
+            else:
+                metrics_dict["Cash Conversion (%)"] = None  # Avoid division by zero
+
+            # Append data to metrics
             metrics.append([
-                ticker, price, market_cap, revenue_growth, roce, gross_margin, operating_profit_margin, cash_conversion, leverage_ratio, interest_cover
+                ticker, price, market_cap, 
+                info.get("revenueGrowth") * 100 if info.get("revenueGrowth") is not None else None,
+                metrics_dict["ROCE (%)"], 
+                metrics_dict["Gross Margin (%)"], 
+                metrics_dict["Operating Profit Margin (%)"], 
+                metrics_dict["Cash Conversion (%)"], 
+                metrics_dict["Leverage (%)"], 
+                metrics_dict["Interest Coverage"]
             ])
+
         except Exception as e:
             st.write(f"Error retrieving data for {ticker}: {e}")
 
